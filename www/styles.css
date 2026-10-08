@@ -85,6 +85,9 @@ input[type="text"], input[type="password"], textarea {
   box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5);
 }
 textarea { padding: 12px 14px; resize: vertical; }
+/* Hides the Discogs token like a password box would, without being one: a real password field makes
+   the browser's password manager offer logins on every text box in the app. */
+.masked { -webkit-text-security: disc; }
 input:focus, textarea:focus { border-color: var(--accent); box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5), var(--glow); }
 ::placeholder { color: #6b6156; }
 
@@ -114,6 +117,10 @@ button.danger { color: var(--danger); }
 button.wide { width: 100%; margin-top: 12px; }
 .buttons { display: flex; gap: 10px; }
 .buttons button { flex: 1; }
+
+.swap-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.swap-row label { margin-top: 6px; }
+#add-swap { min-height: 36px; margin-bottom: 6px; padding: 0 14px; font-size: 14px; color: var(--accent); border-radius: 999px; }
 
 /* ---------- Lookup header: the record on the deck ---------- */
 

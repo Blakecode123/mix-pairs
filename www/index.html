@@ -34,7 +34,10 @@
       <ul id="add-from-suggest" class="suggest"></ul>
     </div>
     <div id="add-from-sub" class="sub"></div>
-    <label for="add-to">Song B (mixed in)</label>
+    <div class="swap-row">
+      <label for="add-to">Song B (mixed in)</label>
+      <button id="add-swap" aria-label="Swap song A and song B">⇅ Swap</button>
+    </div>
     <div class="picker">
       <input id="add-to" type="text" placeholder="Type a song or record" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
       <ul id="add-to-suggest" class="suggest"></ul>
@@ -67,7 +70,7 @@
     <label for="discogs-user">Discogs username</label>
     <input id="discogs-user" type="text" autocomplete="off" autocapitalize="none" spellcheck="false">
     <label for="discogs-token">Personal access token (optional)</label>
-    <input id="discogs-token" type="password" autocomplete="off">
+    <input id="discogs-token" type="text" class="masked" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
     <p class="muted small">Only needed for a private collection. It also makes the sync about twice as fast.</p>
     <button id="discogs-sync" class="primary">Sync my records</button>
     <p id="discogs-status" class="muted"></p>

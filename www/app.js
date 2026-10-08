@@ -296,6 +296,13 @@ function pickAdd(side, id) {
   renderDraft();
 }
 
+// Song A becomes song B and the other way round, for when the mix works better in the opposite direction.
+function swapSongs() {
+  [$('add-from').value, $('add-to').value] = [$('add-to').value, $('add-from').value];
+  [draft.from, draft.to] = [draft.to, draft.from];
+  renderDraft();
+}
+
 function resetAdd() {
   editingPairId = null;
   draft = newDraft();
@@ -401,7 +408,6 @@ async function savePair() {
     log('updated mix', pair);
     resetAdd();
     toast('Mix updated');
-    if (editBack === 'add') pickAdd('from', from.id);
     return show(editBack);
   }
 
@@ -416,7 +422,6 @@ async function savePair() {
   }
   log('saved mix', fields);
   resetAdd();
-  pickAdd('from', from.id); // keep song A so several mixes from one song go in quickly
 }
 
 // ---------- Add new song sheet ----------
@@ -795,6 +800,7 @@ async function init() {
     // Typing after a pick means the picked song no longer applies.
     $(`add-${side}`).addEventListener('input', () => { draft[side] = null; renderDraft(); });
   }
+  $('add-swap').addEventListener('click', swapSongs);
   $('add-save').addEventListener('click', savePair);
   $('add-cancel').addEventListener('click', () => {
     const from = editBack === 'add' && draft.from;

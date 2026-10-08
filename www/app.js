@@ -1,5 +1,6 @@
 const DEBUG = false;
-const APP_VERSION = '3'; // shown in Settings; bump on every published change so an update is visible on the phone
+// Shown in Settings. The publish workflow replaces the placeholder with the build number; an unpublished copy shows "dev".
+const APP_VERSION = '__VERSION__'.startsWith('__') ? 'dev' : '__VERSION__';
 const log = (...a) => { if (DEBUG) console.log('[mixpairs]', ...a); };
 
 const RATINGS = ['OK', 'Good', 'Banger']; // stored on a mix as 1..3
@@ -12,6 +13,7 @@ const OLD_ENERGY = [0, 1, 1, 2, 3, 4];
 const OLD_RATING = [0, 1, 1, 2, 2, 3];
 const PAIR_FORMAT = 3;
 const MAX_SUGGEST = 10;
+const MAX_RECENT = 8;
 
 const $ = id => document.getElementById(id);
 const norm = s => s.trim().toLowerCase();
@@ -68,7 +70,7 @@ function searchInfo(t) {
   let s = searchCache.get(t);
   if (!s) {
     const text = fold(`${t.name} ${t.release || ''}`);
-    searchCache.set(t, s = { text, words: text.split(' ') });
+    searchCache.set(t, s = { text, padded: ` ${text}`, words: text.split(' ') });
   }
   return s;
 }
@@ -100,7 +102,8 @@ function prefixDistance(typed, word, max) {
 }
 
 // Every typed word must appear in the song or record name, in any order; a word that is not found
-// exactly may still match with a spelling mistake. Exact matches come first.
+// exactly may still match with a spelling mistake. Exact matches come first, and among those a match at
+// the start of a word ("da" in Daft) beats one in the middle ("da" in Lady).
 // `counts` (track id -> saved mixes) then floats songs that already have mixes to the top.
 function matchTracks(q, counts) {
   const typed = fold(q).split(' ').filter(Boolean);
@@ -108,10 +111,13 @@ function matchTracks(q, counts) {
   const memo = typed.map(() => new Map()); // per typed word: track word -> distance (artist names repeat a lot)
   const scored = [];
   for (const t of tracks) {
-    const { text, words } = searchInfo(t);
+    const { text, padded, words } = searchInfo(t);
     let cost = 0;
     for (let i = 0; i < typed.length && cost !== Infinity; i++) {
-      if (text.includes(typed[i])) continue;
+      if (text.includes(typed[i])) {
+        if (!padded.includes(` ${typed[i]}`)) cost += 0.5;
+        continue;
+      }
       const max = typoBudget(typed[i]);
       let best = Infinity;
       if (max) {
@@ -145,10 +151,12 @@ function mixInfo(pair) {
 // onPick(trackId) is called for a tapped song, and for a song created through the "Add new song" row.
 function attachSuggest(input, list, getItems, onPick) {
   const render = () => list.replaceChildren(
-    ...getItems(input.value).map(item => el('li', { onclick: () => { list.replaceChildren(); onPick(item.value); } },
+    ...getItems(input.value).map(item => el('li', { onclick: () => { close(); onPick(item.value); } },
       el('span', {}, item.label), item.sub ? el('small', {}, item.sub) : '')),
-    el('li', { class: 'new', onclick: () => { list.replaceChildren(); openAddSong(input.value.trim(), t => onPick(t.id)); } },
+    el('li', { class: 'new', onclick: () => { close(); openAddSong(input.value.trim(), t => onPick(t.id)); } },
       '＋ Add new song'));
+  // Dropping focus puts the phone keyboard away so the result is visible.
+  const close = () => { list.replaceChildren(); input.blur(); };
   input.addEventListener('input', render);
   input.addEventListener('focus', render);
 }
@@ -171,8 +179,22 @@ const addItems = q => matchTracks(q).map(t => ({ label: t.name, sub: trackSub(t)
 
 // ---------- Lookup ----------
 
+// Songs recently picked on the Lookup screen, newest first, so mid-set they are a tap away.
+function recentIds() {
+  try { return JSON.parse(settings.get('recent') || '[]').filter(id => trackMap.has(id)); } catch { return []; }
+}
+
+function recentSection() {
+  const recent = recentIds().filter(id => id !== currentTrackId).map(trackById);
+  if (!recent.length) return '';
+  return el('div', {}, el('h2', {}, 'Recent'),
+    ...recent.map(t => el('button', { class: 'result', onclick: () => setCurrent(t.id) },
+      el('span', { class: 'name' }, t.name), el('small', {}, trackSub(t)))));
+}
+
 function setCurrent(id) {
   currentTrackId = id;
+  settings.set('recent', JSON.stringify([id, ...recentIds().filter(x => x !== id)].slice(0, MAX_RECENT)));
   activeEnergy.clear();
   activeTypes.clear();
   $('lookup-input').value = trackById(id).name;
@@ -194,7 +216,8 @@ function renderLookup() {
   if (!track) {
     box.replaceChildren(el('p', { class: 'muted' },
       tracks.length ? 'Pick the song that is playing to see what you have mixed into it.'
-        : 'No songs yet. Sync your Discogs records in Settings, or save a mix in the Add tab.'));
+        : 'No songs yet. Sync your Discogs records in Settings, or save a mix in the Add tab.'),
+    recentSection());
     return;
   }
   const out = pairs.filter(p => p.from === track.id);
@@ -214,6 +237,7 @@ function renderLookup() {
       mixInfo(pair),
       pair.notes ? el('span', { class: 'notes' }, pair.notes) : '')),
     el('button', { class: 'wide', onclick: () => { resetAdd(); pickAdd('from', track.id); show('add'); } }, 'Save a mix from this song'),
+    recentSection(),
   );
 }
 
@@ -287,6 +311,44 @@ async function ensureTrack(name) {
   return track;
 }
 
+// A hand-typed song that Discogs also knows is folded into the Discogs one: its mixes move across and the
+// typed copy goes. Returns how many songs were merged.
+async function mergeTyped() {
+  const typed = tracks.filter(t => !t.releaseId);
+  if (!typed.length) return 0;
+  const discogs = new Map();
+  for (const t of tracks) if (t.releaseId && !discogs.has(fold(t.name))) discogs.set(fold(t.name), t);
+
+  let merged = 0;
+  for (const t of typed) {
+    const twin = discogs.get(fold(t.name));
+    if (!twin) continue;
+    for (const p of pairs.filter(x => x.from === t.id || x.to === t.id)) {
+      const from = p.from === t.id ? twin.id : p.from;
+      const to = p.to === t.id ? twin.id : p.to;
+      // Moving the mix can make it a copy of one that already exists; keep whichever is rated higher.
+      const clash = pairs.find(x => x !== p && x.from === from && x.to === to);
+      const drop = from === to || (clash && clash.rating >= p.rating) ? p : clash;
+      if (drop) {
+        await db.del('pairs', drop.id);
+        pairs = pairs.filter(x => x !== drop);
+      }
+      if (drop !== p) {
+        Object.assign(p, { from, to });
+        await db.put('pairs', p);
+      }
+    }
+    await db.del('tracks', t.id);
+    trackMap.delete(t.id);
+    if (currentTrackId === t.id) currentTrackId = twin.id;
+    for (const side of ['from', 'to']) if (draft[side] === t.id) draft[side] = twin.id;
+    merged++;
+  }
+  if (merged) tracks = tracks.filter(t => trackMap.has(t.id));
+  log('merged typed songs into discogs songs', merged);
+  return merged;
+}
+
 async function savePair() {
   // A name typed in full without tapping the suggestion still counts.
   const from = trackById(draft.from) || findTrack($('add-from').value);
@@ -331,13 +393,16 @@ let scanStream = null; // camera stream while the barcode scanner runs
 function openAddSong(query, onDone) {
   sheet = { query, onDone };
   $('sheet').hidden = false;
+  history.pushState({ sheet: true }, ''); // so the phone's back button closes the panel instead of the app
   sheetMenu();
 }
 
 function closeSheet() {
+  if (!sheet) return;
   stopScan();
   $('sheet').hidden = true;
   sheet = null;
+  if (history.state?.sheet) history.back(); // closed from the screen: drop the entry added on open
 }
 
 function finishAdd(track) {
@@ -384,7 +449,7 @@ function tokenMissing() {
 
 function sheetSearch() {
   if (tokenMissing()) return;
-  const input = el('input', { type: 'text', placeholder: 'Artist, song or record', autocomplete: 'off' });
+  const input = el('input', { type: 'text', placeholder: 'Artist, song or record', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false' });
   const results = el('div');
   const run = () => {
     const q = input.value.trim();
@@ -420,6 +485,7 @@ async function importRelease(id, title) {
     try {
       rows = releaseTracks(await discogsGet(`/releases/${id}`, settings.get('discogsToken')));
       await saveTracks(rows);
+      await mergeTyped();
     } catch (err) {
       console.error('[mixpairs] discogs release failed', id, err);
       return sheetBody(title, note(`Could not get the songs: ${err.message}.`), backButton());
@@ -472,7 +538,7 @@ async function sheetScan() {
 }
 
 function sheetManual() {
-  const input = el('input', { type: 'text', placeholder: 'Artist – Song', autocomplete: 'off' });
+  const input = el('input', { type: 'text', placeholder: 'Artist – Song', autocomplete: 'off', autocorrect: 'off', spellcheck: 'false' });
   const add = async () => {
     const name = input.value.trim();
     if (!name) return toast('Type the song name');
@@ -563,7 +629,7 @@ async function toggleSync() {
   const have = new Set(tracks.map(t => t.releaseId));
   syncAbort = new AbortController();
   $('discogs-sync').textContent = 'Stop sync';
-  window.Android?.keepAwake(true);
+  keepAwake(true);
   log('discogs sync start', { username, hasToken: !!token, knownRecords: have.size });
   try {
     const r = await syncDiscogs({
@@ -572,7 +638,8 @@ async function toggleSync() {
       saveTracks: async rows => { await saveTracks(rows); renderSettings(); },
     });
     status(`Done. ${r.records} vinyl records in your collection, ${r.fetched} new, ${r.added} songs added.`
-      + (r.skipped ? ` Skipped ${r.skipped} non-vinyl items.` : ''));
+      + (r.skipped ? ` Skipped ${r.skipped} non-vinyl items.` : '')
+      + (r.missing ? ` ${r.missing} could not be found on Discogs any more.` : ''));
   } catch (err) {
     if (syncAbort.signal.aborted) status('Sync stopped. Tap Sync to carry on where it left off.');
     else {
@@ -582,10 +649,28 @@ async function toggleSync() {
   } finally {
     syncAbort = null;
     $('discogs-sync').textContent = 'Sync my records';
-    window.Android?.keepAwake(false);
-    renderSettings();
+    keepAwake(false);
+  }
+  const merged = await mergeTyped();
+  if (merged) status(`${$('discogs-status').textContent} Merged ${merged} hand-typed song(s) into the Discogs version.`);
+  renderSettings();
+}
+
+// Keeps the screen on during a sync; a sleeping phone pauses it.
+let wakeLock = null;
+async function keepAwake(on) {
+  window.Android?.keepAwake(on);
+  try {
+    if (on) wakeLock = await navigator.wakeLock?.request('screen');
+    else { await wakeLock?.release(); wakeLock = null; }
+  } catch (err) {
+    log('screen wake lock unavailable', err);
   }
 }
+
+const validBackup = data => Array.isArray(data?.tracks) && Array.isArray(data?.pairs)
+  && data.tracks.every(t => Number.isInteger(t?.id) && typeof t.name === 'string')
+  && data.pairs.every(p => Number.isInteger(p?.from) && Number.isInteger(p?.to));
 
 function exportData() {
   const json = JSON.stringify({ version: 2, tracks, pairs });
@@ -600,10 +685,11 @@ function exportData() {
 async function importData(file) {
   let data;
   try { data = JSON.parse(await file.text()); } catch { return toast('Not a valid backup file'); }
-  if (!Array.isArray(data?.tracks) || !Array.isArray(data?.pairs)) return toast('Not a valid backup file');
+  if (!validBackup(data)) return toast('Not a valid backup file');
   if (!confirm(`Replace everything with ${data.tracks.length} songs and ${data.pairs.length} mixes from this file?`)) return;
   await db.replaceAll(data);
   await load();
+  settings.set('recent', '[]'); // song ids mean something else in another backup
   currentTrackId = null;
   $('lookup-input').value = '';
   resetAdd();
@@ -616,6 +702,7 @@ async function importData(file) {
 const renderers = { lookup: renderLookup, add: renderDraft, manage: renderManage, settings: renderSettings };
 
 function show(view) {
+  if (updateReady) applyUpdate();
   for (const s of document.querySelectorAll('.view')) s.hidden = s.id !== `view-${view}`;
   for (const b of document.querySelectorAll('nav button')) b.classList.toggle('on', b.dataset.view === view);
   renderers[view]();
@@ -626,8 +713,20 @@ async function load() {
   [tracks, pairs] = await Promise.all([db.all('tracks'), db.all('pairs')]);
   trackMap.clear();
   for (const t of tracks) trackMap.set(t.id, t);
-  log('loaded', tracks.length, 'songs', pairs.length, 'mixes');
+  // A mix pointing at a song that no longer exists cannot be shown; leave it out rather than break the screens.
+  const total = pairs.length;
+  pairs = pairs.filter(p => trackMap.has(p.from) && trackMap.has(p.to));
+  for (const p of pairs) p.notes ??= '';
+  log('loaded', tracks.length, 'songs', pairs.length, 'mixes', total - pairs.length, 'orphaned mixes ignored');
   await upgradePairs();
+}
+
+// A new version has been downloaded. Reload into it, unless that would throw away something half-entered;
+// then it waits for the next change of screen.
+let updateReady = false;
+function applyUpdate() {
+  updateReady = !!(sheet || syncAbort || editingPairId || $('add-to').value || $('add-notes').value);
+  if (!updateReady) location.reload();
 }
 
 // Brings mixes saved by an older version (or restored from an old backup) up to the current format.
@@ -683,9 +782,28 @@ async function init() {
   for (const b of document.querySelectorAll('nav button')) b.addEventListener('click', () => show(b.dataset.view));
   show('lookup');
 
+  window.addEventListener('popstate', () => closeSheet()); // phone back button
+  navigator.storage?.persist?.().then(kept => log('storage protected from cleanup:', kept));
+
   // Offline copy + automatic updates for the installed web app (the Android shell bundles its own files).
-  if ('serviceWorker' in navigator && !window.Android) {
-    navigator.serviceWorker.register('sw.js').catch(err => console.error('[mixpairs] offline support failed', err));
+  if (!('serviceWorker' in navigator) || window.Android) return;
+  if (['localhost', '127.0.0.1'].includes(location.hostname)) {
+    // Development copy: always load straight from disk.
+    navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(reg => reg.unregister()));
+    caches.keys().then(keys => keys.forEach(key => caches.delete(key)));
+    return;
+  }
+  const hadVersion = !!navigator.serviceWorker.controller; // false on the very first visit: nothing to update from
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadVersion) applyUpdate(); });
+  try {
+    const reg = await navigator.serviceWorker.register('sw.js');
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      reg.update().catch(() => { /* offline: try again next time */ });
+      if (syncAbort) keepAwake(true); // the screen lock is dropped whenever the app is hidden
+    });
+  } catch (err) {
+    console.error('[mixpairs] offline support failed', err);
   }
 }
 

@@ -23,6 +23,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      # Stamps the build number into the app. A changed sw.js is what tells installed copies to update.
+      - run: sed -i "s/__VERSION__/${{ github.run_number }}/g" www/sw.js www/app.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

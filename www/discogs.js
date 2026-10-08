@@ -26,10 +26,11 @@ async function discogsGet(path, token, signal) {
       await sleep(60000, signal);
       continue;
     }
-    if (res.status === 404) throw new Error('Discogs could not find that username');
-    if (res.status === 401 || res.status === 403) throw new Error('Discogs refused access (check the token in Settings; a private collection needs one)');
-    if (!res.ok) throw new Error(`Discogs returned error ${res.status}`);
-    return res.json();
+    if (res.ok) return res.json();
+    const message = res.status === 404 ? (path.startsWith('/users/') ? 'Discogs could not find that username' : 'Discogs no longer has that record')
+      : res.status === 401 || res.status === 403 ? 'Discogs refused access (check the token in Settings; a private collection needs one)'
+        : `Discogs returned error ${res.status}`;
+    throw Object.assign(new Error(message), { status: res.status });
   }
 }
 
@@ -76,13 +77,20 @@ async function syncDiscogs({ username, token, signal, haveRelease, saveTracks, o
   log('discogs collection', { vinyl: vinyl.size, skipped, toFetch: todo.length });
 
   let added = 0;
+  let missing = 0;
   for (const [i, [id, title]] of todo.entries()) {
     onProgress(`Record ${i + 1} of ${todo.length}: ${title}`);
-    const rows = releaseTracks(await discogsGet(`/releases/${id}`, token, signal));
+    let rows = [];
+    try {
+      rows = releaseTracks(await discogsGet(`/releases/${id}`, token, signal));
+    } catch (err) {
+      if (err.status !== 404) throw err; // one record deleted from Discogs must not stop the whole sync
+      missing++;
+    }
     await saveTracks(rows);
     added += rows.length;
     await sleep(pace, signal);
   }
-  log('discogs sync done', { fetched: todo.length, added });
-  return { records: vinyl.size, fetched: todo.length, added, skipped };
+  log('discogs sync done', { fetched: todo.length, added, missing });
+  return { records: vinyl.size, fetched: todo.length, added, skipped, missing };
 }

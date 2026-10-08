@@ -1,8 +1,13 @@
 const DEBUG = false;
-const APP_VERSION = '1'; // shown in Settings; bump on every published change so an update is visible on the phone
+const APP_VERSION = '2'; // shown in Settings; bump on every published change so an update is visible on the phone
 const log = (...a) => { if (DEBUG) console.log('[mixpairs]', ...a); };
 
-const ENERGY = ['Chill', 'Mellow', 'Groovy', 'Driving', 'Heavy bass']; // stored as 1..5, 0 = not set
+// Both are stored on a mix as 1..4, with 0 = not set.
+const ENERGY = ['Chill bar', 'Party bar', 'Early club', 'Late night'];
+const MIX_TYPES = ['Quick cut', 'Long blend', 'Easy double', 'Hard double'];
+// Mixes saved before version 2 used a 5-step energy scale (Chill, Mellow, Groovy, Driving, Heavy bass).
+const OLD_ENERGY = [0, 1, 1, 2, 3, 4];
+const PAIR_FORMAT = 2;
 const MAX_SUGGEST = 10;
 
 const $ = id => document.getElementById(id);
@@ -13,11 +18,12 @@ let pairs = [];
 const trackMap = new Map();
 let currentTrackId = null;     // song selected on the Lookup screen
 let activeEnergy = new Set();  // energy filter on the Lookup screen
+let activeTypes = new Set();   // mix type filter on the Lookup screen
 let draft = newDraft();        // mix being added/edited; from/to hold a track id once picked from the list
 let editingPairId = null;
 let syncAbort = null;          // AbortController while a Discogs sync runs
 
-function newDraft() { return { from: null, to: null, rating: 0, energy: 0 }; }
+function newDraft() { return { from: null, to: null, rating: 0, type: 0, energy: 0 }; }
 
 function el(tag, attrs = {}, ...kids) {
   const n = document.createElement(tag);
@@ -125,6 +131,7 @@ function matchTracks(q, counts) {
 function mixInfo(pair) {
   return el('div', { class: 'info' },
     el('span', { class: 'rating' }, stars(pair.rating)),
+    pair.type ? el('span', { class: 'chip' }, MIX_TYPES[pair.type - 1]) : '',
     pair.energy ? el('span', { class: 'chip' }, ENERGY[pair.energy - 1]) : '');
 }
 
@@ -162,8 +169,18 @@ const addItems = q => matchTracks(q).map(t => ({ label: t.name, sub: trackSub(t)
 function setCurrent(id) {
   currentTrackId = id;
   activeEnergy.clear();
+  activeTypes.clear();
   $('lookup-input').value = trackById(id).name;
   renderLookup();
+}
+
+// Tappable filter chips for the values of `field` (1..n) that occur in `list`.
+function filterChips(list, field, labels, active) {
+  const present = [...new Set(list.map(p => p[field]).filter(Boolean))].sort();
+  return el('div', { class: 'chips' }, ...present.map(v => el('button', {
+    class: 'chip' + (active.has(v) ? ' on' : ''),
+    onclick: () => { active.has(v) ? active.delete(v) : active.add(v); renderLookup(); },
+  }, labels[v - 1])));
 }
 
 function renderLookup() {
@@ -176,19 +193,16 @@ function renderLookup() {
     return;
   }
   const out = pairs.filter(p => p.from === track.id);
-  const energies = [...new Set(out.map(p => p.energy).filter(Boolean))].sort();
   const shown = out
-    .filter(p => !activeEnergy.size || activeEnergy.has(p.energy))
+    .filter(p => (!activeTypes.size || activeTypes.has(p.type)) && (!activeEnergy.size || activeEnergy.has(p.energy)))
     .map(p => ({ pair: p, to: trackById(p.to) }))
     .sort((a, b) => b.pair.rating - a.pair.rating || byName(a.to, b.to));
 
   box.replaceChildren(
     el('p', { class: 'sub' }, trackSub(track)),
     el('h2', {}, out.length ? `Mixes into (${out.length})` : 'No mixes saved from this song yet'),
-    el('div', { class: 'chips' }, ...energies.map(e => el('button', {
-      class: 'chip' + (activeEnergy.has(e) ? ' on' : ''),
-      onclick: () => { activeEnergy.has(e) ? activeEnergy.delete(e) : activeEnergy.add(e); renderLookup(); },
-    }, ENERGY[e - 1]))),
+    filterChips(out, 'type', MIX_TYPES, activeTypes),
+    filterChips(out, 'energy', ENERGY, activeEnergy),
     ...shown.map(({ pair, to }) => el('button', { class: 'result', onclick: () => setCurrent(to.id) },
       el('span', { class: 'name' }, to.name),
       el('small', {}, trackSub(to)),
@@ -206,10 +220,13 @@ function renderDraft() {
     'aria-label': `${i} out of 5`,
     onclick: () => { draft.rating = i; renderDraft(); },
   }, '★')));
-  $('add-energy').replaceChildren(...ENERGY.map((name, i) => el('button', {
-    class: 'seg' + (draft.energy === i + 1 ? ' on' : ''),
-    onclick: () => { draft.energy = draft.energy === i + 1 ? 0 : i + 1; renderDraft(); },
-  }, name)));
+  // Tapping the selected option again clears it.
+  for (const [field, labels] of [['type', MIX_TYPES], ['energy', ENERGY]]) {
+    $(`add-${field}`).replaceChildren(...labels.map((name, i) => el('button', {
+      class: 'seg' + (draft[field] === i + 1 ? ' on' : ''),
+      onclick: () => { draft[field] = draft[field] === i + 1 ? 0 : i + 1; renderDraft(); },
+    }, name)));
+  }
   for (const side of ['from', 'to']) $(`add-${side}-sub`).textContent = draft[side] ? trackSub(trackById(draft[side])) : '';
 }
 
@@ -233,6 +250,7 @@ function startEdit(pair) {
   resetAdd();
   editingPairId = pair.id;
   draft.rating = pair.rating;
+  draft.type = pair.type;
   draft.energy = pair.energy;
   pickAdd('from', pair.from);
   pickAdd('to', pair.to);
@@ -273,7 +291,7 @@ async function savePair() {
   if (!draft.rating) return toast('Tap a star rating');
   if (from === to) return toast('Song A and song B are the same');
 
-  const fields = { from: from.id, to: to.id, rating: draft.rating, energy: draft.energy, notes: $('add-notes').value.trim() };
+  const fields = { from: from.id, to: to.id, rating: draft.rating, type: draft.type, energy: draft.energy, notes: $('add-notes').value.trim(), v: PAIR_FORMAT };
   const same = pairs.find(p => p.from === from.id && p.to === to.id);
 
   if (editingPairId) {
@@ -605,6 +623,17 @@ async function load() {
   trackMap.clear();
   for (const t of tracks) trackMap.set(t.id, t);
   log('loaded', tracks.length, 'songs', pairs.length, 'mixes');
+  await upgradePairs();
+}
+
+// Brings mixes saved by an older version (or restored from an old backup) up to the current format.
+// Each mix carries its own format number, so this can never be applied twice to the same mix.
+async function upgradePairs() {
+  const old = pairs.filter(p => p.v !== PAIR_FORMAT);
+  if (!old.length) return;
+  for (const p of old) Object.assign(p, { energy: OLD_ENERGY[p.energy] || 0, type: p.type || 0, v: PAIR_FORMAT });
+  await db.putMany('pairs', old);
+  log('upgraded', old.length, 'mixes to format', PAIR_FORMAT);
 }
 
 async function init() {

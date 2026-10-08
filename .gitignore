@@ -1,0 +1,3 @@
+# Android build output and the signing key (the key must never be published)
+android/build/
+*.keystore

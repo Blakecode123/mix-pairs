@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12131a">
+<title>Mix Pairs</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main>
+  <section id="view-lookup" class="view">
+    <h1>Now playing</h1>
+    <div class="picker">
+      <input id="lookup-input" type="text" placeholder="Type a song or record" autocomplete="off">
+      <ul id="lookup-suggest" class="suggest"></ul>
+    </div>
+    <div id="lookup-result"></div>
+  </section>
+
+  <section id="view-add" class="view" hidden>
+    <h1 id="add-title">Save a mix</h1>
+    <label for="add-from">Song A (playing)</label>
+    <div class="picker">
+      <input id="add-from" type="text" placeholder="Type a song or record" autocomplete="off">
+      <ul id="add-from-suggest" class="suggest"></ul>
+    </div>
+    <div id="add-from-sub" class="sub"></div>
+    <label for="add-to">Song B (mixed in)</label>
+    <div class="picker">
+      <input id="add-to" type="text" placeholder="Type a song or record" autocomplete="off">
+      <ul id="add-to-suggest" class="suggest"></ul>
+    </div>
+    <div id="add-to-sub" class="sub"></div>
+    <label>How good is the mix?</label>
+    <div id="add-rating" class="stars"></div>
+    <label>Energy</label>
+    <div id="add-energy" class="segs"></div>
+    <label for="add-notes">Notes</label>
+    <textarea id="add-notes" rows="3" placeholder="e.g. drop B after the second breakdown"></textarea>
+    <button id="add-save" class="primary">Save mix</button>
+    <button id="add-cancel" class="wide" hidden>Cancel edit</button>
+  </section>
+
+  <section id="view-manage" class="view" hidden>
+    <h1>Saved mixes</h1>
+    <input id="manage-filter" type="text" placeholder="Filter by song, record or note" autocomplete="off">
+    <h2 id="manage-pairs-title"></h2>
+    <div id="manage-pairs"></div>
+    <h2 id="manage-tracks-title"></h2>
+    <div id="manage-tracks"></div>
+  </section>
+
+  <section id="view-settings" class="view" hidden>
+    <h1>Settings</h1>
+    <h2>Discogs</h2>
+    <label for="discogs-user">Discogs username</label>
+    <input id="discogs-user" type="text" autocomplete="off" autocapitalize="none" spellcheck="false">
+    <label for="discogs-token">Personal access token (optional)</label>
+    <input id="discogs-token" type="password" autocomplete="off">
+    <p class="muted small">Only needed for a private collection. It also makes the sync about twice as fast.</p>
+    <button id="discogs-sync" class="primary">Sync my records</button>
+    <p id="discogs-status" class="muted"></p>
+    <p id="stats" class="muted"></p>
+    <h2>Backup</h2>
+    <div class="buttons">
+      <button id="backup-export">Export backup</button>
+      <button id="backup-import">Restore backup</button>
+      <input id="backup-file" type="file" accept="application/json,.json" hidden>
+    </div>
+    <p id="version" class="muted small"></p>
+  </section>
+</main>
+
+<div id="sheet" hidden>
+  <button id="sheet-close">Close</button>
+  <div id="sheet-body"></div>
+</div>
+
+<div id="toast" hidden></div>
+
+<nav>
+  <button data-view="lookup">Lookup</button>
+  <button data-view="add">Add</button>
+  <button data-view="manage">Mixes</button>
+  <button data-view="settings">Settings</button>
+</nav>
+
+<script src="db.js"></script>
+<script src="discogs.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

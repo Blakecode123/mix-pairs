@@ -1,13 +1,16 @@
 const DEBUG = false;
-const APP_VERSION = '2'; // shown in Settings; bump on every published change so an update is visible on the phone
+const APP_VERSION = '3'; // shown in Settings; bump on every published change so an update is visible on the phone
 const log = (...a) => { if (DEBUG) console.log('[mixpairs]', ...a); };
 
+const RATINGS = ['OK', 'Good', 'Banger']; // stored on a mix as 1..3
 // Both are stored on a mix as 1..4, with 0 = not set.
 const ENERGY = ['Chill bar', 'Party bar', 'Early club', 'Late night'];
 const MIX_TYPES = ['Quick cut', 'Long blend', 'Easy double', 'Hard double'];
 // Mixes saved before version 2 used a 5-step energy scale (Chill, Mellow, Groovy, Driving, Heavy bass).
 const OLD_ENERGY = [0, 1, 1, 2, 3, 4];
-const PAIR_FORMAT = 2;
+// Mixes saved before version 3 were rated 1 to 5 stars.
+const OLD_RATING = [0, 1, 1, 2, 2, 3];
+const PAIR_FORMAT = 3;
 const MAX_SUGGEST = 10;
 
 const $ = id => document.getElementById(id);
@@ -56,7 +59,9 @@ const trackById = id => trackMap.get(id);
 const findTrack = name => tracks.find(t => fold(t.name) === fold(name));
 const byName = (a, b) => a.name.localeCompare(b.name);
 const trackSub = t => [t.release, t.position].filter(Boolean).join(' · ');
-const stars = n => '★'.repeat(n) + '☆'.repeat(5 - n);
+// Rating drawn as a volume meter: three rising bars, lit up to the rating.
+const meter = n => el('span', { class: 'meter', 'aria-label': `${RATINGS[n - 1]} (${n} of 3)` },
+  ...[1, 2, 3].map(i => el('i', i <= n ? { class: 'on' } : {})));
 
 const searchCache = new WeakMap();
 function searchInfo(t) {
@@ -130,7 +135,7 @@ function matchTracks(q, counts) {
 
 function mixInfo(pair) {
   return el('div', { class: 'info' },
-    el('span', { class: 'rating' }, stars(pair.rating)),
+    meter(pair.rating),
     pair.type ? el('span', { class: 'chip' }, MIX_TYPES[pair.type - 1]) : '',
     pair.energy ? el('span', { class: 'chip' }, ENERGY[pair.energy - 1]) : '');
 }
@@ -215,11 +220,10 @@ function renderLookup() {
 // ---------- Add / edit ----------
 
 function renderDraft() {
-  $('add-rating').replaceChildren(...[1, 2, 3, 4, 5].map(i => el('button', {
-    class: 'star' + (i <= draft.rating ? ' on' : ''),
-    'aria-label': `${i} out of 5`,
-    onclick: () => { draft.rating = i; renderDraft(); },
-  }, '★')));
+  $('add-rating').replaceChildren(...RATINGS.map((name, i) => el('button', {
+    class: 'rate' + (draft.rating === i + 1 ? ' on' : ''),
+    onclick: () => { draft.rating = i + 1; renderDraft(); },
+  }, meter(i + 1), name)));
   // Tapping the selected option again clears it.
   for (const [field, labels] of [['type', MIX_TYPES], ['energy', ENERGY]]) {
     $(`add-${field}`).replaceChildren(...labels.map((name, i) => el('button', {
@@ -288,7 +292,7 @@ async function savePair() {
   const from = trackById(draft.from) || findTrack($('add-from').value);
   const to = trackById(draft.to) || findTrack($('add-to').value);
   if (!from || !to) return toast('Pick both songs from the list, or tap "Add new song"');
-  if (!draft.rating) return toast('Tap a star rating');
+  if (!draft.rating) return toast('Pick how good the mix is');
   if (from === to) return toast('Song A and song B are the same');
 
   const fields = { from: from.id, to: to.id, rating: draft.rating, type: draft.type, energy: draft.energy, notes: $('add-notes').value.trim(), v: PAIR_FORMAT };
@@ -631,7 +635,11 @@ async function load() {
 async function upgradePairs() {
   const old = pairs.filter(p => p.v !== PAIR_FORMAT);
   if (!old.length) return;
-  for (const p of old) Object.assign(p, { energy: OLD_ENERGY[p.energy] || 0, type: p.type || 0, v: PAIR_FORMAT });
+  for (const p of old) {
+    if (!p.v) Object.assign(p, { energy: OLD_ENERGY[p.energy] || 0, type: p.type || 0 }); // format 1 -> 2
+    p.rating = OLD_RATING[p.rating] || 1;                                                 // format 2 -> 3
+    p.v = PAIR_FORMAT;
+  }
   await db.putMany('pairs', old);
   log('upgraded', old.length, 'mixes to format', PAIR_FORMAT);
 }

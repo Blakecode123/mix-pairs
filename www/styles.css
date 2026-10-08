@@ -62,9 +62,17 @@ button.wide { width: 100%; margin-top: 12px; }
 .sub { margin: 6px 2px 0; color: var(--muted); font-size: 14px; }
 .sub:empty { display: none; }
 
-.stars { display: flex; gap: 8px; }
-.star { flex: 1; font-size: 26px; color: var(--line); }
-.star.on { color: #ffc93c; border-color: #ffc93c; }
+.rate { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; font-size: 14px; color: var(--muted); }
+.rate.on { color: #fff; border-color: #ffc93c; background: #2a2718; }
+.rate .meter { height: 26px; }
+.rate .meter i { width: 9px; }
+
+.meter { display: inline-flex; align-items: flex-end; gap: 3px; height: 16px; }
+.meter i { width: 5px; border-radius: 2px; background: var(--line); }
+.meter i:nth-child(1) { height: 40%; }
+.meter i:nth-child(2) { height: 70%; }
+.meter i:nth-child(3) { height: 100%; }
+.meter i.on { background: #ffc93c; }
 .segs { display: flex; gap: 6px; }
 .seg { flex: 1; padding: 0 4px; font-size: 13px; line-height: 1.2; color: var(--muted); }
 .seg.on { color: #fff; background: var(--accent); border-color: var(--accent); }
@@ -104,7 +112,6 @@ button.wide { width: 100%; margin-top: 12px; }
 button.chip { padding: 8px 14px; font-size: 15px; }
 .chip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
 .info { display: flex; align-items: center; gap: 8px; }
-.rating { color: #ffc93c; letter-spacing: 1px; }
 .notes { color: var(--muted); font-size: 15px; white-space: pre-wrap; }
 
 .result {

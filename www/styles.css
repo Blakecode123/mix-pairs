@@ -209,6 +209,7 @@ button.wide { width: 100%; margin-top: 12px; }
 .suggest li small, .result small { color: var(--muted); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
 .suggest li:last-child { border-bottom: 0; }
 .suggest li.new { color: var(--accent); }
+.suggest li.head { padding: 10px 14px 6px; color: var(--muted); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; cursor: default; }
 
 /* ---------- chips, mix cards, rows ---------- */
 

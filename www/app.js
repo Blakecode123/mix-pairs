@@ -26,6 +26,7 @@ let activeEnergy = new Set();  // energy filter on the Lookup screen
 let activeTypes = new Set();   // mix type filter on the Lookup screen
 let draft = newDraft();        // mix being added/edited; from/to hold a track id once picked from the list
 let editingPairId = null;
+let editBack = 'manage';       // screen to return to when an edit is saved or cancelled
 let syncAbort = null;          // AbortController while a Discogs sync runs
 
 function newDraft() { return { from: null, to: null, rating: 0, type: 0, energy: 0 }; }
@@ -154,8 +155,10 @@ function mixInfo(pair) {
 // onPick(trackId) is called for a tapped song, and for a song created through the "Add new song" row.
 function attachSuggest(input, list, getItems, onPick) {
   const render = () => list.replaceChildren(
-    ...getItems(input.value).map(item => el('li', { onclick: () => { close(); onPick(item.value); } },
-      el('span', {}, item.label), item.sub ? el('small', {}, item.sub) : '')),
+    ...getItems(input.value).map(item => (item.heading ? el('li', { class: 'head' }, item.heading)
+      : el('li', { onclick: () => { close(); onPick(item.value); } },
+        el('span', {}, item.label), item.sub ? el('small', {}, item.sub) : '',
+        item.pair ? el('div', { class: 'info' }, meter(item.pair.rating), el('span', { class: 'chip on' }, 'Already saved')) : ''))),
     el('li', { class: 'new', onclick: () => { close(); openAddSong(input.value.trim(), t => onPick(t.id)); } },
       '＋ Add new song'));
   // Dropping focus puts the phone keyboard away so the result is visible.
@@ -179,6 +182,30 @@ function lookupItems(q) {
 }
 
 const addItems = q => matchTracks(q).map(t => ({ label: t.name, sub: trackSub(t), value: t.id }));
+
+// Song A on the Add screen: picked from the list, or typed in full.
+const draftFromId = () => draft.from ?? findTrack($('add-from').value)?.id;
+
+// Suggestions for song B. Songs already saved as a mix from song A are marked and listed first, and with
+// nothing typed yet they are all shown, so the same mix is not entered twice.
+function toItems(q) {
+  const saved = new Map(pairs.filter(p => p.from === draftFromId()).map(p => [p.to, p]));
+  if (!saved.size) return addItems(q);
+  const item = t => ({ label: t.name, sub: trackSub(t), value: t.id, pair: saved.get(t.id) });
+  if (!q.trim()) {
+    return [{ heading: 'Already mixed with this song' },
+      ...[...saved.values()].sort((a, b) => b.rating - a.rating || byName(trackById(a.to), trackById(b.to))).map(p => item(trackById(p.to)))];
+  }
+  return matchTracks(q, new Map([...saved.keys()].map(id => [id, 1]))).map(item);
+}
+
+// Picking a song B that is already saved with song A opens that mix instead of starting a second copy.
+function pickTo(id) {
+  const pair = pairs.find(p => p.from === draftFromId() && p.to === id);
+  if (!pair || pair.id === editingPairId) return pickAdd('to', id);
+  startEdit(pair, 'add');
+  toast('Already saved. Editing that mix.');
+}
 
 // ---------- Lookup ----------
 
@@ -279,9 +306,10 @@ function resetAdd() {
   renderDraft();
 }
 
-function startEdit(pair) {
+function startEdit(pair, back = 'manage') {
   resetAdd();
   editingPairId = pair.id;
+  editBack = back;
   draft.rating = pair.rating;
   draft.type = pair.type;
   draft.energy = pair.energy;
@@ -373,7 +401,8 @@ async function savePair() {
     log('updated mix', pair);
     resetAdd();
     toast('Mix updated');
-    return show('manage');
+    if (editBack === 'add') pickAdd('from', from.id);
+    return show(editBack);
   }
 
   if (same) {
@@ -762,12 +791,17 @@ async function init() {
   });
 
   for (const side of ['from', 'to']) {
-    attachSuggest($(`add-${side}`), $(`add-${side}-suggest`), addItems, id => pickAdd(side, id));
+    attachSuggest($(`add-${side}`), $(`add-${side}-suggest`), side === 'to' ? toItems : addItems, side === 'to' ? pickTo : id => pickAdd(side, id));
     // Typing after a pick means the picked song no longer applies.
     $(`add-${side}`).addEventListener('input', () => { draft[side] = null; renderDraft(); });
   }
   $('add-save').addEventListener('click', savePair);
-  $('add-cancel').addEventListener('click', () => { resetAdd(); show('manage'); });
+  $('add-cancel').addEventListener('click', () => {
+    const from = editBack === 'add' && draft.from;
+    resetAdd();
+    if (from) pickAdd('from', from);
+    show(editBack);
+  });
 
   $('manage-filter').addEventListener('input', renderManage);
 

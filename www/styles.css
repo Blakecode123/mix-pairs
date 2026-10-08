@@ -1,12 +1,26 @@
+/* Look: dub sound system. Warm black, amber like valve amps and dubplate labels, vinyl and speaker details. */
+
+/* Bebas Neue, SIL Open Font License 1.1 (latin subset). Stored with the app so headings work offline. */
+@font-face {
+  font-family: 'Bebas Neue';
+  src: url('bebas-neue.woff2') format('woff2');
+  font-display: swap;
+}
+
 :root {
-  --bg: #12131a;
-  --panel: #1c1e29;
-  --line: #2e3142;
-  --text: #eceef5;
-  --muted: #8b90a6;
-  --accent: #7c5cff;
-  --danger: #ff5c7a;
-  --nav-h: 60px;
+  --bg: #0d0b09;
+  --panel: #1a1613;
+  --well: #120f0c;
+  --line: #332b24;
+  --text: #f3ead9;
+  --muted: #9a8d7c;
+  --accent: #ffa31a;
+  --accent-ink: #1a1206; /* text on amber */
+  --hot: #ff5a1f;
+  --danger: #ff6b6b;
+  --glow: 0 0 14px rgba(255, 163, 26, 0.45);
+  --display: 'Bebas Neue', 'Arial Narrow', sans-serif;
+  --nav-h: 64px;
 }
 
 * { box-sizing: border-box; }
@@ -18,6 +32,19 @@ html, body {
   font: 17px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-tap-highlight-color: transparent;
 }
+body { background: transparent; }
+
+/* Faint record grooves and a warm glow from the top, fixed behind the page. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    repeating-radial-gradient(circle at 50% -120px, transparent 0 5px, rgba(243, 234, 217, 0.022) 5px 6px),
+    radial-gradient(ellipse at 50% -10%, #261b10 0, var(--bg) 60%);
+}
 
 main {
   max-width: 640px;
@@ -25,10 +52,25 @@ main {
   padding: 16px 16px calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px);
 }
 
-h1 { font-size: 22px; margin: 4px 0 12px; }
-h2 { font-size: 17px; margin: 22px 0 10px; color: var(--muted); font-weight: 600; }
-label { display: block; margin: 16px 0 6px; color: var(--muted); font-size: 14px; }
+h1 { margin: 4px 0 12px; font: 400 36px/1 var(--display); letter-spacing: 0.04em; }
+h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 24px 0 10px;
+  color: var(--muted);
+  font: 400 20px/1 var(--display);
+  letter-spacing: 0.08em;
+}
+h2::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+h2:empty { display: none; }
+label { display: block; margin: 16px 0 6px; color: var(--muted); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
 .muted { color: var(--muted); }
+.small { font-size: 14px; }
+.sub { margin: 6px 2px 0; color: var(--muted); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.sub:empty { display: none; }
+
+/* ---------- inputs and buttons ---------- */
 
 input[type="text"], input[type="password"], textarea {
   width: 100%;
@@ -36,46 +78,116 @@ input[type="text"], input[type="password"], textarea {
   padding: 0 14px;
   font: inherit;
   color: var(--text);
-  background: var(--panel);
+  background: var(--well);
   border: 1px solid var(--line);
   border-radius: 12px;
   outline: none;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5);
 }
 textarea { padding: 12px 14px; resize: vertical; }
-input:focus, textarea:focus { border-color: var(--accent); }
+input:focus, textarea:focus { border-color: var(--accent); box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5), var(--glow); }
+::placeholder { color: #6b6156; }
 
 button {
   min-height: 48px;
   padding: 0 16px;
   font: inherit;
   color: var(--text);
-  background: var(--panel);
+  background: linear-gradient(180deg, #211c17, #17130f);
   border: 1px solid var(--line);
   border-radius: 12px;
   cursor: pointer;
 }
 button:active { opacity: 0.7; }
-button.primary { width: 100%; margin-top: 22px; background: var(--accent); border-color: var(--accent); font-weight: 600; }
+button.primary {
+  width: 100%;
+  min-height: 56px;
+  margin-top: 22px;
+  color: var(--accent-ink);
+  font: 400 24px/1 var(--display);
+  letter-spacing: 0.08em;
+  background: linear-gradient(180deg, #ffbb4d, #ff9500);
+  border-color: #ffbb4d;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 6px 20px rgba(255, 149, 0, 0.28);
+}
 button.danger { color: var(--danger); }
 button.wide { width: 100%; margin-top: 12px; }
-.small { font-size: 14px; }
-.sub { margin: 6px 2px 0; color: var(--muted); font-size: 14px; }
-.sub:empty { display: none; }
+.buttons { display: flex; gap: 10px; }
+.buttons button { flex: 1; }
+
+/* ---------- Lookup header: the record on the deck ---------- */
+
+.deck { display: flex; align-items: center; gap: 16px; margin: 4px 0 14px; }
+.deck h1 { margin: 0; }
+.deck-song { margin: 4px 0 0; color: var(--accent); font-size: 15px; overflow-wrap: anywhere; }
+.record {
+  flex: none;
+  position: relative;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, var(--bg) 0 3px, var(--accent) 3.5px 15px, #000 15.5px 17px, transparent 17.5px),
+    conic-gradient(from 20deg, rgba(255, 255, 255, 0.16), transparent 12% 38%, rgba(255, 255, 255, 0.1) 50%, transparent 62% 88%, rgba(255, 255, 255, 0.16)),
+    repeating-radial-gradient(circle, #171310 0 1.5px, #0a0908 1.5px 3px);
+  box-shadow: 0 0 0 1px #000, 0 6px 18px rgba(0, 0, 0, 0.6);
+}
+/* A mark on the label, so the turning is visible. */
+.record::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 2px;
+  background: var(--accent-ink);
+  transform: translate(4px, -7px);
+}
+.record.spinning { animation: spin 1.8s linear infinite; } /* 33 rpm */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- rating meter, option buttons ---------- */
+
+.segs { display: flex; gap: 6px; }
+.seg {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 52px;
+  padding: 8px 4px;
+  font-size: 13px;
+  line-height: 1.15;
+  color: var(--muted);
+}
+.seg.on { color: var(--accent-ink); font-weight: 600; background: var(--accent); border-color: var(--accent); box-shadow: var(--glow); }
+
+/* Speaker cones on the energy buttons: one more per level. */
+.stack { display: flex; gap: 3px; }
+.stack i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: radial-gradient(circle, currentColor 0 1.5px, transparent 2px 3.5px, currentColor 4px);
+  opacity: 0.75;
+}
 
 .rate { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; font-size: 14px; color: var(--muted); }
-.rate.on { color: #fff; border-color: #ffc93c; background: #2a2718; }
+.rate.on { color: var(--text); border-color: var(--accent); background: #2a1e0c; box-shadow: var(--glow); }
 .rate .meter { height: 26px; }
 .rate .meter i { width: 9px; }
 
 .meter { display: inline-flex; align-items: flex-end; gap: 3px; height: 16px; }
-.meter i { width: 5px; border-radius: 2px; background: var(--line); }
+.meter i { width: 5px; border-radius: 1px; background: var(--line); }
 .meter i:nth-child(1) { height: 40%; }
 .meter i:nth-child(2) { height: 70%; }
 .meter i:nth-child(3) { height: 100%; }
-.meter i.on { background: #ffc93c; }
-.segs { display: flex; gap: 6px; }
-.seg { flex: 1; padding: 0 4px; font-size: 13px; line-height: 1.2; color: var(--muted); }
-.seg.on { color: #fff; background: var(--accent); border-color: var(--accent); }
+.meter i.on { background: var(--accent); box-shadow: 0 0 6px rgba(255, 163, 26, 0.7); }
+.meter i.on:nth-child(3) { background: var(--hot); box-shadow: 0 0 8px rgba(255, 90, 31, 0.8); } /* into the red */
+
+/* ---------- suggestion lists ---------- */
 
 .picker { position: relative; }
 .suggest {
@@ -86,43 +198,64 @@ button.wide { width: 100%; margin-top: 12px; }
   left: 0;
   right: 0;
   z-index: 5;
-  background: var(--panel);
+  background: #1f1a16;
   border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 0 1px var(--line), 0 10px 30px rgba(0, 0, 0, 0.7);
   max-height: 45vh;
   overflow-y: auto;
 }
 .suggest:empty { display: none; }
 .suggest li { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
-.suggest li small, .result small { color: var(--muted); font-size: 13px; }
+.suggest li small, .result small { color: var(--muted); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
 .suggest li:last-child { border-bottom: 0; }
 .suggest li.new { color: var(--accent); }
 
+/* ---------- chips, mix cards, rows ---------- */
+
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips:empty { display: none; }
+.chips + .chips { margin-top: 6px; }
 .chip {
   min-height: 0;
   padding: 3px 10px;
-  font-size: 14px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--muted);
   background: transparent;
   border: 1px solid var(--line);
   border-radius: 999px;
 }
-button.chip { padding: 8px 14px; font-size: 15px; }
-.chip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
-.info { display: flex; align-items: center; gap: 8px; }
+button.chip { padding: 8px 14px; font-size: 13px; }
+.chip.on { color: var(--accent-ink); font-weight: 600; background: var(--accent); border-color: var(--accent); }
+.info { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .notes { color: var(--muted); font-size: 15px; white-space: pre-wrap; }
 
+/* Each song card carries a small record, like a 12" in its sleeve. */
 .result {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
   width: 100%;
   margin-top: 10px;
-  padding: 14px;
+  padding: 14px 14px 14px 64px;
   text-align: left;
+  border-radius: 14px;
+}
+.result::before {
+  content: '';
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, var(--bg) 0 1.5px, var(--accent) 2px 7px, transparent 7.5px),
+    repeating-radial-gradient(circle, #26211c 0 1px, #0a0908 1px 2.5px);
+  box-shadow: 0 0 0 1px #000;
 }
 .result .name { font-size: 18px; font-weight: 600; }
 
@@ -130,14 +263,13 @@ button.chip { padding: 8px 14px; font-size: 15px; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 0;
+  padding: 12px 0;
   border-bottom: 1px solid var(--line);
 }
 .row .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
 .row button { min-height: 40px; padding: 0 12px; font-size: 15px; }
 
-.buttons { display: flex; gap: 10px; }
-.buttons button { flex: 1; }
+/* ---------- add-song panel, toast, nav ---------- */
 
 #sheet {
   position: fixed;
@@ -159,11 +291,19 @@ button.chip { padding: 8px 14px; font-size: 15px; }
   z-index: 20;
   padding: 12px 16px;
   text-align: center;
-  background: #2b2e40;
+  background: #1f1a16;
+  border: 1px solid var(--accent);
   border-radius: 12px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6), var(--glow);
+}
+#toast.drop { animation: drop 0.35s ease-out; } /* lands like a needle on the record */
+@keyframes drop {
+  0% { transform: translateY(-14px) scale(0.96); opacity: 0; }
+  60% { transform: translateY(2px) scale(1.01); opacity: 1; }
+  100% { transform: none; }
 }
 
+/* Mixer strip: each channel has an indicator light. */
 nav {
   position: fixed;
   left: 0;
@@ -173,8 +313,30 @@ nav {
   display: flex;
   height: calc(var(--nav-h) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
-  background: var(--panel);
-  border-top: 1px solid var(--line);
+  background: linear-gradient(180deg, #231d18, #14110e);
+  border-top: 1px solid #000;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
-nav button { flex: 1; min-height: 0; border: 0; border-radius: 0; background: transparent; color: var(--muted); }
-nav button.on { color: var(--accent); font-weight: 600; }
+nav button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 400 17px/1 var(--display);
+  letter-spacing: 0.08em;
+}
+nav button::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #3a2f25; box-shadow: inset 0 0 0 1px #000; }
+nav button.on { color: var(--text); }
+nav button.on::before { background: var(--accent); box-shadow: 0 0 10px 2px rgba(255, 163, 26, 0.8); }
+
+@media (prefers-reduced-motion: reduce) {
+  .record.spinning, #toast.drop { animation: none; }
+}

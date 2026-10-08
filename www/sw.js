@@ -4,7 +4,7 @@
 // whole new version is downloaded in the background and swapped in together - never half old, half new.
 const VERSION = '__VERSION__'; // replaced with the build number by the publish workflow
 const CACHE = `mixpairs-${VERSION}`;
-const FILES = ['./', 'styles.css', 'db.js', 'discogs.js', 'app.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
+const FILES = ['./', 'styles.css', 'db.js', 'discogs.js', 'app.js', 'manifest.json', 'icon-192.png', 'icon-512.png', 'bebas-neue.woff2'];
 
 self.addEventListener('install', event => {
   // 'reload' bypasses the browser's own HTTP cache. addAll is all-or-nothing: if one file fails, the old version stays.

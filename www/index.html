@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#12131a">
+<meta name="theme-color" content="#0d0b09">
 <title>Mix Pairs</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -12,7 +12,13 @@
 <body>
 <main>
   <section id="view-lookup" class="view">
-    <h1>Now playing</h1>
+    <div class="deck">
+      <div id="record" class="record"></div>
+      <div>
+        <h1>Now playing</h1>
+        <p id="deck-song" class="deck-song"></p>
+      </div>
+    </div>
     <div class="picker">
       <input id="lookup-input" type="text" placeholder="Type a song or record" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
       <ul id="lookup-suggest" class="suggest"></ul>

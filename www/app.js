@@ -45,6 +45,9 @@ function toast(msg) {
   const t = $('toast');
   t.textContent = msg;
   t.hidden = false;
+  t.classList.remove('drop');
+  void t.offsetWidth; // restarts the drop-in animation when one message follows another
+  t.classList.add('drop');
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => { t.hidden = true; }, 2400);
 }
@@ -213,6 +216,8 @@ function filterChips(list, field, labels, active) {
 function renderLookup() {
   const box = $('lookup-result');
   const track = trackById(currentTrackId);
+  $('record').classList.toggle('spinning', !!track); // the record turns while a song is on the deck
+  $('deck-song').textContent = track ? track.name : 'Nothing on the deck';
   if (!track) {
     box.replaceChildren(el('p', { class: 'muted' },
       tracks.length ? 'Pick the song that is playing to see what you have mixed into it.'
@@ -253,7 +258,7 @@ function renderDraft() {
     $(`add-${field}`).replaceChildren(...labels.map((name, i) => el('button', {
       class: 'seg' + (draft[field] === i + 1 ? ' on' : ''),
       onclick: () => { draft[field] = draft[field] === i + 1 ? 0 : i + 1; renderDraft(); },
-    }, name)));
+    }, field === 'energy' ? el('span', { class: 'stack' }, ...Array.from({ length: i + 1 }, () => el('i'))) : '', name)));
   }
   for (const side of ['from', 'to']) $(`add-${side}-sub`).textContent = draft[side] ? trackSub(trackById(draft[side])) : '';
 }

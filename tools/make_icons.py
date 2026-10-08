@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 OUT = Path(__file__).resolve().parent.parent / "www"
-BG, PURPLE, YELLOW = "#12131a", "#7c5cff", "#ffc93c"
+BG, PURPLE, YELLOW = "#0d0b09", "#f3ead9", "#ffa31a"
 SCALE = 4  # draw oversized, then shrink, for smooth edges
 
 

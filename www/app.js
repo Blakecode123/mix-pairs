@@ -14,6 +14,11 @@ const OLD_RATING = [0, 1, 1, 2, 2, 3];
 const PAIR_FORMAT = 3;
 const MAX_SUGGEST = 10;
 const MAX_RECENT = 8;
+const MAX_GENRE_CHIPS = 12;
+const MIN_BPM = 40;
+const MAX_BPM = 250;
+const MAX_TAPS = 12;          // tap tempo averages the last this-many taps
+const TAP_RESET_MS = 2000;    // a longer pause starts a fresh tap count
 
 const $ = id => document.getElementById(id);
 const norm = s => s.trim().toLowerCase();
@@ -64,7 +69,7 @@ const fold = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase
 const trackById = id => trackMap.get(id);
 const findTrack = name => tracks.find(t => fold(t.name) === fold(name));
 const byName = (a, b) => a.name.localeCompare(b.name);
-const trackSub = t => [t.release, t.position].filter(Boolean).join(' · ');
+const trackSub = t => [t.release, t.position, t.genre, t.bpm ? `${t.bpm} BPM` : ''].filter(Boolean).join(' · ');
 // Rating drawn as a volume meter: three rising bars, lit up to the rating.
 const meter = n => el('span', { class: 'meter', 'aria-label': `${RATINGS[n - 1]} (${n} of 3)` },
   ...[1, 2, 3].map(i => el('i', i <= n ? { class: 'on' } : {})));
@@ -143,9 +148,19 @@ function matchTracks(q, counts) {
     .map(x => x.t);
 }
 
+// How far song B's tempo is from song A's, so a big pitch jump shows before trying the mix.
+function bpmGap(pair) {
+  const a = trackById(pair.from)?.bpm;
+  const b = trackById(pair.to)?.bpm;
+  if (!a || !b) return '';
+  const d = Math.round((b - a) * 10) / 10;
+  return el('span', { class: 'chip' }, `${a} → ${b} BPM (${d ? (d > 0 ? '+' : '') + d : 'same'})`);
+}
+
 function mixInfo(pair) {
   return el('div', { class: 'info' },
     meter(pair.rating),
+    bpmGap(pair),
     pair.type ? el('span', { class: 'chip' }, MIX_TYPES[pair.type - 1]) : '',
     pair.energy ? el('span', { class: 'chip' }, ENERGY[pair.energy - 1]) : '');
 }
@@ -156,10 +171,10 @@ function mixInfo(pair) {
 function attachSuggest(input, list, getItems, onPick) {
   const render = () => list.replaceChildren(
     ...getItems(input.value).map(item => (item.heading ? el('li', { class: 'head' }, item.heading)
-      : el('li', { onclick: () => { close(); onPick(item.value); } },
+      : el('li', { onclick: () => { close(); onPick(item.value); askDetails(item.value); } },
         el('span', {}, item.label), item.sub ? el('small', {}, item.sub) : '',
         item.pair ? el('div', { class: 'info' }, meter(item.pair.rating), el('span', { class: 'chip on' }, 'Already saved')) : ''))),
-    el('li', { class: 'new', onclick: () => { close(); openAddSong(input.value.trim(), t => onPick(t.id)); } },
+    el('li', { class: 'new', onclick: () => { close(); openAddSong(input.value.trim(), t => { onPick(t.id); askDetails(t.id); }); } },
       '＋ Add new song'));
   // Dropping focus puts the phone keyboard away so the result is visible.
   const close = () => { list.replaceChildren(); input.blur(); };
@@ -259,7 +274,9 @@ function renderLookup() {
     .sort((a, b) => b.pair.rating - a.pair.rating || byName(a.to, b.to));
 
   box.replaceChildren(
-    el('p', { class: 'sub' }, trackSub(track)),
+    el('div', { class: 'deck-meta' },
+      el('p', { class: 'sub' }, trackSub(track)),
+      el('button', { class: 'chip', onclick: () => editDetails(track) }, track.genre || track.bpm ? 'Edit genre / BPM' : '＋ Genre / BPM')),
     el('h2', {}, out.length ? `Mixes into (${out.length})` : 'No mixes saved from this song yet'),
     filterChips(out, 'type', MIX_TYPES, activeTypes),
     filterChips(out, 'energy', ENERGY, activeEnergy),
@@ -378,6 +395,12 @@ async function mergeTyped() {
         await db.put('pairs', p);
       }
     }
+    // Genre and BPM typed for the hand-made copy fill whatever the Discogs copy is missing.
+    if ((!twin.genre && t.genre) || (!twin.bpm && t.bpm)) {
+      twin.genre ||= t.genre;
+      twin.bpm ||= t.bpm;
+      await db.put('tracks', twin);
+    }
     await db.del('tracks', t.id);
     trackMap.delete(t.id);
     if (currentTrackId === t.id) currentTrackId = twin.id;
@@ -423,6 +446,89 @@ async function savePair() {
   log('saved mix', fields);
   resetAdd();
 }
+
+// ---------- Genre and BPM ----------
+
+// After a song is picked from a search: asks for its genre and BPM when either is missing,
+// unless the user said not to ask for that song.
+function askDetails(id) {
+  const t = trackById(id);
+  if (t && !t.noAsk && (!t.genre || !t.bpm)) editDetails(t, true);
+}
+
+// Genres already in use, most used first, offered as one-tap chips so the same genre is spelled the same way.
+function knownGenres() {
+  const counts = new Map();
+  for (const t of tracks) if (t.genre) counts.set(t.genre, (counts.get(t.genre) || 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1]).slice(0, MAX_GENRE_CHIPS).map(([g]) => g);
+}
+
+// Tap along to the beat: BPM from the average gap between taps.
+function tapTempo(onBpm) {
+  let taps = [];
+  return () => {
+    const now = performance.now();
+    if (now - (taps.at(-1) ?? -Infinity) > TAP_RESET_MS) taps = [];
+    taps = [...taps, now].slice(-MAX_TAPS);
+    if (taps.length > 1) onBpm(Math.round(60000 * (taps.length - 1) / (now - taps[0])), taps.length);
+  };
+}
+
+async function saveDetails(t, fields) {
+  Object.assign(t, fields);
+  for (const k of ['genre', 'bpm']) if (!t[k]) delete t[k];
+  await db.put('tracks', t);
+  log('song details', t.name, fields);
+  refresh();
+}
+
+// asking: opened by itself after a pick (Skip / Don't ask) rather than by the user (Cancel).
+function editDetails(t, asking = false) {
+  const dlg = $('details');
+  if (dlg.open) dlg.close();
+  const genre = el('input', { type: 'text', placeholder: 'e.g. Deep House', autocomplete: 'off', autocorrect: 'off', spellcheck: 'false' });
+  const bpm = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'e.g. 124', autocomplete: 'off' });
+  const error = el('p', { class: 'error' });
+  genre.value = t.genre || '';
+  bpm.value = t.bpm || '';
+  const tap = el('button', {
+    class: 'tap',
+    onpointerdown: tapTempo((n, count) => { bpm.value = n; tap.textContent = `Tap (${count})`; }),
+  }, 'Tap along');
+
+  const save = async () => {
+    const n = bpm.value.trim() ? Number(bpm.value.trim().replace(',', '.')) : 0;
+    if (Number.isNaN(n) || (n && (n < MIN_BPM || n > MAX_BPM))) {
+      error.textContent = `BPM should be a number from ${MIN_BPM} to ${MAX_BPM}`;
+      return;
+    }
+    dlg.close();
+    await saveDetails(t, { genre: genre.value.trim(), bpm: Math.round(n * 10) / 10 });
+  };
+  const dontAsk = async () => {
+    dlg.close();
+    t.noAsk = true;
+    await db.put('tracks', t);
+    log('stopped asking for details', t.name);
+  };
+
+  dlg.replaceChildren(
+    el('h1', {}, asking ? 'Add genre and BPM?' : 'Genre and BPM'),
+    el('p', { class: 'deck-song' }, t.name),
+    el('label', {}, 'Genre'), genre,
+    el('div', { class: 'chips' }, ...knownGenres().map(g => el('button', { class: 'chip', onclick: () => { genre.value = g; } }, g))),
+    el('label', {}, 'BPM (type it, or tap along to the beat)'),
+    el('div', { class: 'bpm-row' }, bpm, tap),
+    error,
+    el('button', { class: 'primary', onclick: save }, 'Save'),
+    el('div', { class: 'buttons' }, ...(asking
+      ? [el('button', { onclick: () => dlg.close() }, 'Skip'), el('button', { onclick: dontAsk }, "Don't ask again")]
+      : [el('button', { onclick: () => dlg.close() }, 'Cancel')])));
+  dlg.showModal();
+  dlg.focus();
+}
+
+const songLink = t => el('button', { class: 'songlink', onclick: () => editDetails(t) }, t.name);
 
 // ---------- Add new song sheet ----------
 
@@ -601,7 +707,7 @@ function renderManage() {
   $('manage-pairs-title').textContent = `Mixes (${shownPairs.length})`;
   $('manage-pairs').replaceChildren(...shownPairs.map(({ pair, from, to }) => el('div', { class: 'row' },
     el('div', { class: 'grow' },
-      el('span', {}, `${from.name} → ${to.name}`),
+      el('span', {}, songLink(from), ' → ', songLink(to)),
       mixInfo(pair),
       pair.notes ? el('span', { class: 'notes' }, pair.notes) : ''),
     el('button', { onclick: () => startEdit(pair) }, 'Edit'),
@@ -611,7 +717,7 @@ function renderManage() {
   const typed = tracks.filter(t => !t.releaseId && searchInfo(t).text.includes(q)).sort(byName);
   $('manage-tracks-title').textContent = typed.length ? `Songs you typed in (${typed.length})` : '';
   $('manage-tracks').replaceChildren(...typed.map(t => el('div', { class: 'row' },
-    el('div', { class: 'grow' }, t.name),
+    el('div', { class: 'grow' }, songLink(t)),
     el('button', { onclick: () => renameTrack(t) }, 'Rename'),
     el('button', { class: 'danger', onclick: () => deleteTrack(t) }, 'Delete'))));
 }
@@ -675,10 +781,12 @@ async function toggleSync() {
       username, token, signal: syncAbort.signal, onProgress: status,
       haveRelease: id => have.has(id),
       saveTracks: async rows => { await saveTracks(rows); renderSettings(); },
+      fillGenres,
     });
     status(`Done. ${r.records} vinyl records in your collection, ${r.fetched} new, ${r.added} songs added.`
       + (r.skipped ? ` Skipped ${r.skipped} non-vinyl items.` : '')
-      + (r.missing ? ` ${r.missing} could not be found on Discogs any more.` : ''));
+      + (r.missing ? ` ${r.missing} could not be found on Discogs any more.` : '')
+      + (r.genresFilled ? ` Filled in the genre for ${r.genresFilled} songs.` : ''));
   } catch (err) {
     if (syncAbort.signal.aborted) status('Sync stopped. Tap Sync to carry on where it left off.');
     else {
@@ -693,6 +801,14 @@ async function toggleSync() {
   const merged = await mergeTyped();
   if (merged) status(`${$('discogs-status').textContent} Merged ${merged} hand-typed song(s) into the Discogs version.`);
   renderSettings();
+}
+
+// Gives songs without a genre their record's genre from Discogs. A genre set by hand is never replaced.
+async function fillGenres(byRelease) {
+  const missing = tracks.filter(t => t.releaseId && !t.genre && byRelease.has(t.releaseId));
+  for (const t of missing) t.genre = byRelease.get(t.releaseId);
+  if (missing.length) await db.putMany('tracks', missing);
+  return missing.length;
 }
 
 // Keeps the screen on during a sync; a sleeping phone pauses it.
@@ -740,6 +856,12 @@ async function importData(file) {
 
 const renderers = { lookup: renderLookup, add: renderDraft, manage: renderManage, settings: renderSettings };
 
+// Redraws the screen that is showing, after something it displays has changed.
+function refresh() {
+  const view = document.querySelector('.view:not([hidden])')?.id.slice('view-'.length);
+  if (view) renderers[view]();
+}
+
 function show(view) {
   if (updateReady) applyUpdate();
   for (const s of document.querySelectorAll('.view')) s.hidden = s.id !== `view-${view}`;
@@ -764,7 +886,7 @@ async function load() {
 // then it waits for the next change of screen.
 let updateReady = false;
 function applyUpdate() {
-  updateReady = !!(sheet || syncAbort || editingPairId || $('add-to').value || $('add-notes').value);
+  updateReady = !!(sheet || syncAbort || editingPairId || $('details').open || $('add-to').value || $('add-notes').value);
   if (!updateReady) location.reload();
 }
 
@@ -780,6 +902,18 @@ async function upgradePairs() {
   }
   await db.putMany('pairs', old);
   log('upgraded', old.length, 'mixes to format', PAIR_FORMAT);
+}
+
+// A ✕ inside a search box that empties it (CSS hides it while the box is empty).
+function addClear(input) {
+  input.after(el('button', {
+    class: 'clear', type: 'button', 'aria-label': 'Clear',
+    onclick: () => {
+      input.value = '';
+      input.dispatchEvent(new Event('input')); // same as deleting the text by hand
+      input.focus();
+    },
+  }, '✕'));
 }
 
 async function init() {
@@ -810,6 +944,7 @@ async function init() {
   });
 
   $('manage-filter').addEventListener('input', renderManage);
+  for (const id of ['lookup-input', 'add-from', 'add-to', 'manage-filter']) addClear($(id));
 
   $('discogs-user').value = settings.get('discogsUser');
   $('discogs-token').value = settings.get('discogsToken');

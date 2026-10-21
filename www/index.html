@@ -57,7 +57,10 @@
 
   <section id="view-manage" class="view" hidden>
     <h1>Saved mixes</h1>
-    <input id="manage-filter" type="text" placeholder="Filter by song, record or note" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+    <p class="muted small">Tap a song name to set its genre and BPM.</p>
+    <div class="clearable">
+      <input id="manage-filter" type="text" placeholder="Filter by song, record or note" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+    </div>
     <h2 id="manage-pairs-title"></h2>
     <div id="manage-pairs"></div>
     <h2 id="manage-tracks-title"></h2>
@@ -89,6 +92,9 @@
   <button id="sheet-close">Close</button>
   <div id="sheet-body"></div>
 </div>
+
+<!-- Genre and BPM card. Focus goes to the card itself so the keyboard does not pop up over it. -->
+<dialog id="details" tabindex="-1"></dialog>
 
 <div id="toast" hidden></div>
 

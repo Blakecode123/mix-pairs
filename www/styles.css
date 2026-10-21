@@ -196,7 +196,11 @@ button.wide { width: 100%; margin-top: 12px; }
 
 /* ---------- suggestion lists ---------- */
 
-.picker { position: relative; }
+.picker, .clearable { position: relative; }
+.picker input, .clearable input { padding-right: 48px; }
+/* The ✕ that empties a search box; only there while the box has something in it. */
+button.clear { position: absolute; top: 0; right: 0; width: 48px; min-height: 52px; padding: 0; font-size: 18px; color: var(--muted); background: none; border: 0; }
+input:placeholder-shown + .clear { display: none; }
 .suggest {
   list-style: none;
   margin: 4px 0 0;
@@ -276,6 +280,33 @@ button.chip { padding: 8px 14px; font-size: 13px; }
 }
 .row .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
 .row button { min-height: 40px; padding: 0 12px; font-size: 15px; }
+
+/* A song name that opens its genre and BPM. */
+button.songlink, .row button.songlink { min-height: 0; padding: 0; font: inherit; color: inherit; text-align: left; background: none; border: 0; border-bottom: 1px dotted var(--muted); border-radius: 0; }
+.deck-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.deck-meta .sub { margin-top: 0; }
+
+/* ---------- genre and BPM card ---------- */
+
+#details {
+  width: min(92vw, 480px);
+  max-height: 90vh;
+  padding: 18px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+}
+#details::backdrop { background: rgba(0, 0, 0, 0.7); }
+#details:focus { outline: none; }
+#details .chips { margin-top: 8px; }
+#details .buttons { margin-top: 10px; }
+#details .error { margin: 10px 0 0; color: var(--danger); }
+#details .error:empty { display: none; }
+.bpm-row { display: flex; gap: 10px; }
+.bpm-row input { flex: 1; min-width: 0; }
+button.tap { min-width: 130px; color: var(--accent); }
 
 /* ---------- add-song panel, toast, nav ---------- */
 

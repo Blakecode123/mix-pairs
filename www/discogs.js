@@ -34,9 +34,13 @@ async function discogsGet(path, token, signal) {
   }
 }
 
+// The record's first style ("Deep House") is more useful in a DJ crate than its broad genre ("Electronic").
+const releaseGenre = r => r.styles?.[0] || r.genres?.[0] || '';
+
 // Flattens a release's tracklist into song rows; "index" entries hold their songs in sub_tracks.
 function releaseTracks(release) {
   const rows = [];
+  const genre = releaseGenre(release);
   const walk = list => {
     for (const t of list || []) {
       if (t.sub_tracks?.length) walk(t.sub_tracks);
@@ -46,6 +50,7 @@ function releaseTracks(release) {
           release: release.title,
           position: t.position || '',
           releaseId: release.id,
+          ...(genre && { genre }),
         });
       }
     }
@@ -56,9 +61,11 @@ function releaseTracks(release) {
 
 // haveRelease(id): true when that record's songs are already stored, so a re-run only fetches new records.
 // saveTracks(rows): persists one record's songs; called after each record so a stopped sync loses nothing.
-async function syncDiscogs({ username, token, signal, haveRelease, saveTracks, onProgress }) {
+// fillGenres(map of record id -> genre): gives songs stored before genres existed theirs; returns how many.
+async function syncDiscogs({ username, token, signal, haveRelease, saveTracks, fillGenres, onProgress }) {
   const pace = token ? PACE_TOKEN_MS : PACE_ANON_MS;
   const vinyl = new Map();
+  const genres = new Map();
   let skipped = 0;
 
   onProgress('Reading your collection…');
@@ -67,14 +74,17 @@ async function syncDiscogs({ username, token, signal, haveRelease, saveTracks, o
     pages = data.pagination.pages;
     for (const r of data.releases) {
       const info = r.basic_information;
-      if (info.formats?.some(f => f.name === 'Vinyl')) vinyl.set(r.id, info.title);
-      else skipped++;
+      if (info.formats?.some(f => f.name === 'Vinyl')) {
+        vinyl.set(r.id, info.title);
+        if (releaseGenre(info)) genres.set(r.id, releaseGenre(info));
+      } else skipped++;
     }
     await sleep(pace, signal);
   }
 
+  const genresFilled = await fillGenres(genres);
   const todo = [...vinyl].filter(([id]) => !haveRelease(id));
-  log('discogs collection', { vinyl: vinyl.size, skipped, toFetch: todo.length });
+  log('discogs collection', { vinyl: vinyl.size, skipped, toFetch: todo.length, genresFilled });
 
   let added = 0;
   let missing = 0;
@@ -92,5 +102,5 @@ async function syncDiscogs({ username, token, signal, haveRelease, saveTracks, o
     await sleep(pace, signal);
   }
   log('discogs sync done', { fetched: todo.length, added, missing });
-  return { records: vinyl.size, fetched: todo.length, added, skipped, missing };
+  return { records: vinyl.size, fetched: todo.length, added, skipped, missing, genresFilled };
 }

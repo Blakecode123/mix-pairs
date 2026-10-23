@@ -1,9 +1,10 @@
-// IndexedDB storage, two stores:
+// IndexedDB storage, three stores:
 //   tracks {id, name, release?, position?, releaseId?}  (releaseId set when the song came from Discogs)
 //   pairs  {id, from, to, rating, energy, notes}
+//   sets   {id, name, songs: [track id, ...], updated}  (a planned run of songs, in playing order; added in version 2)
 const DB_NAME = 'mixpairs';
-const DB_VERSION = 1;
-const STORES = ['tracks', 'pairs'];
+const DB_VERSION = 2;
+const STORES = ['tracks', 'pairs', 'sets'];
 
 let dbPromise;
 
@@ -11,7 +12,10 @@ function openDb() {
   return dbPromise ??= new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
-      for (const s of STORES) req.result.createObjectStore(s, { keyPath: 'id', autoIncrement: true });
+      // Only the stores this copy is missing, so an upgrade keeps the songs and mixes already saved.
+      for (const s of STORES) {
+        if (!req.result.objectStoreNames.contains(s)) req.result.createObjectStore(s, { keyPath: 'id', autoIncrement: true });
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -44,7 +48,7 @@ const db = {
     for (const s of STORES) {
       const os = tx.objectStore(s);
       os.clear();
-      for (const row of data[s]) os.put(row);
+      for (const row of data[s] ?? []) os.put(row); // backups made before sets existed have none
     }
   }),
 };

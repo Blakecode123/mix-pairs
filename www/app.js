@@ -19,6 +19,8 @@ const MIN_BPM = 40;
 const MAX_BPM = 250;
 const MAX_TAPS = 12;          // tap tempo averages the last this-many taps
 const TAP_RESET_MS = 2000;    // a longer pause starts a fresh tap count
+const DRAG_EDGE = 70;         // a dragged song this close to the top or the nav scrolls the page
+const DRAG_SCROLL = 8;        // pixels scrolled per frame while it is there
 
 const $ = id => document.getElementById(id);
 const norm = s => s.trim().toLowerCase();
@@ -33,6 +35,12 @@ let draft = newDraft();        // mix being added/edited; from/to hold a track i
 let editingPairId = null;
 let editBack = 'manage';       // screen to return to when an edit is saved or cancelled
 let syncAbort = null;          // AbortController while a Discogs sync runs
+let sets = [];
+let openSetId = null;          // set shown on the Sets screen; null shows the list of sets
+let picking = null;            // {at, replace} while a song search is open in the set
+let showTransitions = true;    // mixes shown between the songs of a set (remembered in settings)
+let transitionQueue = [];      // [from, to] song pairs next to each other in a set that are not saved as mixes yet
+let transitionWaiting = false; // waiting for the genre/BPM card to close before asking about the next one
 
 function newDraft() { return { from: null, to: null, rating: 0, type: 0, energy: 0 }; }
 
@@ -292,18 +300,27 @@ function renderLookup() {
 
 // ---------- Add / edit ----------
 
-function renderDraft() {
-  $('add-rating').replaceChildren(...RATINGS.map((name, i) => el('button', {
-    class: 'rate' + (draft.rating === i + 1 ? ' on' : ''),
-    onclick: () => { draft.rating = i + 1; renderDraft(); },
-  }, meter(i + 1), name)));
+// Rating, mix type and energy buttons for a mix being entered. `m` holds the choices; `redraw` runs after a tap.
+function mixButtons(m, redraw) {
+  const out = {
+    rating: RATINGS.map((name, i) => el('button', {
+      class: 'rate' + (m.rating === i + 1 ? ' on' : ''),
+      onclick: () => { m.rating = i + 1; redraw(); },
+    }, meter(i + 1), name)),
+  };
   // Tapping the selected option again clears it.
   for (const [field, labels] of [['type', MIX_TYPES], ['energy', ENERGY]]) {
-    $(`add-${field}`).replaceChildren(...labels.map((name, i) => el('button', {
-      class: 'seg' + (draft[field] === i + 1 ? ' on' : ''),
-      onclick: () => { draft[field] = draft[field] === i + 1 ? 0 : i + 1; renderDraft(); },
-    }, field === 'energy' ? el('span', { class: 'stack' }, ...Array.from({ length: i + 1 }, () => el('i'))) : '', name)));
+    out[field] = labels.map((name, i) => el('button', {
+      class: 'seg' + (m[field] === i + 1 ? ' on' : ''),
+      onclick: () => { m[field] = m[field] === i + 1 ? 0 : i + 1; redraw(); },
+    }, field === 'energy' ? el('span', { class: 'stack' }, ...Array.from({ length: i + 1 }, () => el('i'))) : '', name));
   }
+  return out;
+}
+
+function renderDraft() {
+  const buttons = mixButtons(draft, renderDraft);
+  for (const field of ['rating', 'type', 'energy']) $(`add-${field}`).replaceChildren(...buttons[field]);
   for (const side of ['from', 'to']) $(`add-${side}-sub`).textContent = draft[side] ? trackSub(trackById(draft[side])) : '';
 }
 
@@ -400,6 +417,10 @@ async function mergeTyped() {
       twin.genre ||= t.genre;
       twin.bpm ||= t.bpm;
       await db.put('tracks', twin);
+    }
+    for (const s of sets.filter(x => x.songs.includes(t.id))) {
+      s.songs = [...new Set(s.songs.map(id => (id === t.id ? twin.id : id)))]; // a set holds each song once
+      await db.put('sets', s);
     }
     await db.del('tracks', t.id);
     trackMap.delete(t.id);
@@ -563,9 +584,15 @@ function stopScan() {
 
 // Called by the Android shell on the back button; true means "handled, stay in the app".
 function handleBack() {
-  if (!sheet) return false;
-  closeSheet();
-  return true;
+  if (sheet) {
+    closeSheet();
+    return true;
+  }
+  if (openSetId && !$('view-sets').hidden) {
+    closeSet();
+    return true;
+  }
+  return false;
 }
 
 const note = text => el('p', { class: 'muted' }, text);
@@ -744,6 +771,10 @@ async function deleteTrack(track) {
   const used = pairs.filter(p => p.from === track.id || p.to === track.id);
   if (!confirm(`Delete "${track.name}" and its ${used.length} mix(es)?`)) return;
   for (const p of used) await db.del('pairs', p.id);
+  for (const s of sets.filter(x => x.songs.includes(track.id))) {
+    s.songs = s.songs.filter(id => id !== track.id);
+    await db.put('sets', s);
+  }
   await db.del('tracks', track.id);
   pairs = pairs.filter(p => !used.includes(p));
   tracks = tracks.filter(t => t !== track);
@@ -753,13 +784,294 @@ async function deleteTrack(track) {
   renderManage();
 }
 
+// ---------- Sets ----------
+
+const pairFor = (from, to) => pairs.find(p => p.from === from && p.to === to);
+// The song-to-song changes in a run of songs, as [from, to].
+const transitionsOf = songs => songs.slice(1).map((to, i) => [songs[i], to]);
+
+function renderSets() {
+  const set = sets.find(s => s.id === openSetId);
+  if (set) return renderSet(set);
+  openSetId = null;
+  picking = null;
+  $('view-sets').replaceChildren(
+    el('h1', {}, 'Sets'),
+    note(sets.length ? 'Tap a set to work on it.' : 'Plan a run of songs: add them in order, drag them around, and save the mixes between them as you go.'),
+    el('button', { class: 'primary', onclick: newSet }, '＋ New set'),
+    ...[...sets].sort((a, b) => b.updated - a.updated).map(s => el('button', { class: 'result', onclick: () => openSet(s.id) },
+      el('span', { class: 'name' }, s.name),
+      el('small', {}, `${s.songs.length} song${s.songs.length === 1 ? '' : 's'}`))));
+}
+
+function renderSet(set) {
+  const list = el('div', { class: 'set-list' });
+  set.songs.forEach((id, i) => {
+    if (i) list.append(between(set, i));
+    list.append(picking?.replace && picking.at === i ? slotPicker(set) : slot(set, i));
+  });
+  const n = set.songs.length;
+  const saved = transitionsOf(set.songs).filter(([a, b]) => pairFor(a, b)).length;
+  $('view-sets').replaceChildren(
+    el('button', { class: 'chip', onclick: closeSet }, '‹ All sets'),
+    el('h1', { class: 'set-name' }, set.name),
+    el('div', { class: 'deck-meta' },
+      el('span', { class: 'chip' }, `${n} song${n === 1 ? '' : 's'}`),
+      n > 1 ? el('span', { class: 'chip' }, `${saved} of ${n - 1} mixes saved`) : '',
+      el('button', { class: 'chip' + (showTransitions ? ' on' : ''), onclick: toggleTransitions }, 'Show mixes')),
+    n ? note('Tap a song to swap it, ＋ to add one in between, hold ☰ to drag.') : note('Add the first song of the set.'),
+    list,
+    picking && !picking.replace && picking.at === n ? slotPicker(set) : el('button', { class: 'wide add-end', onclick: e => openPicker(e, n) }, '＋ Add song'),
+    el('div', { class: 'buttons set-actions' },
+      el('button', { onclick: () => renameSet(set) }, 'Rename'),
+      el('button', { class: 'danger', onclick: () => deleteSet(set) }, 'Delete set')));
+}
+
+function slot(set, i) {
+  const t = trackById(set.songs[i]);
+  const s = el('div', { class: 'slot', 'data-i': i },
+    el('span', { class: 'num' }, i + 1),
+    el('button', { class: 'song', onclick: e => openPicker(e, i, true) }, el('span', {}, t.name), el('small', {}, trackSub(t))),
+    el('button', { class: 'remove', 'aria-label': 'Take out of the set', onclick: () => updateSongs(set, set.songs.filter((_, j) => j !== i)) }, '✕'));
+  s.append(el('button', { class: 'grip', 'aria-label': 'Drag to move', onpointerdown: e => startDrag(e, s, set) }, '☰'));
+  return s;
+}
+
+// The space between two songs: the saved mix (or a prompt to save one) when mixes are shown, and ＋ to add a song there.
+function between(set, i) {
+  if (picking && !picking.replace && picking.at === i) return slotPicker(set);
+  const plus = el('button', { class: 'gap', 'aria-label': 'Add a song here', onclick: e => openPicker(e, i) }, '＋');
+  if (!showTransitions) return el('div', { class: 'between' }, plus);
+  const [a, b] = [set.songs[i - 1], set.songs[i]];
+  const pair = pairFor(a, b);
+  const trans = pair
+    ? el('button', { class: 'trans', onclick: () => startEdit(pair, 'sets') }, mixInfo(pair))
+    : el('button', { class: 'trans', onclick: () => askTransitions([[a, b]]) },
+      el('div', { class: 'info' }, el('span', { class: 'chip unsaved' }, 'Mix not saved · tap to save'), bpmGap({ from: a, to: b })));
+  return el('div', { class: 'between' }, trans, plus);
+}
+
+// Song search shown in place of a slot (to swap that song) or of a gap (to add one there).
+function slotPicker(set) {
+  const input = el('input', { type: 'text', placeholder: picking.replace ? 'Swap for…' : 'Type a song or record', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false' });
+  const list = el('ul', { class: 'suggest' });
+  const box = el('div', { class: 'picker' }, input, list);
+  attachSuggest(input, list, q => addItems(q).filter(item => !set.songs.includes(item.value)), id => pickSlot(set, id));
+  addClear(input);
+  return el('div', { class: 'slot-pick' }, box, el('button', { class: 'wide', onclick: () => { picking = null; renderSets(); } }, 'Cancel'));
+}
+
+function openPicker(e, at, replace = false) {
+  e.stopPropagation(); // the page-wide click handler would close the new suggestion list straight away
+  picking = { at, replace };
+  renderSets();
+  $('view-sets').querySelector('.slot-pick input').focus();
+}
+
+function pickSlot(set, id) {
+  const { at, replace } = picking;
+  picking = null;
+  if (set.songs.includes(id)) {
+    toast('That song is already in this set');
+    return renderSets();
+  }
+  const songs = [...set.songs];
+  songs.splice(at, replace ? 1 : 0, id);
+  updateSongs(set, songs);
+}
+
+// Saves a new running order, then offers to save any song-to-song mix it creates that is not saved yet.
+async function updateSongs(set, songs) {
+  const before = new Set(transitionsOf(set.songs).map(t => t.join('>')));
+  const fresh = transitionsOf(songs).filter(t => !before.has(t.join('>')));
+  set.songs = songs;
+  set.updated = Date.now();
+  await db.put('sets', set);
+  log('set songs', set.name, songs.length, 'new transitions', fresh.length);
+  refresh();
+  setTimeout(() => askTransitions(fresh)); // after the genre/BPM card a pick may have opened
+}
+
+// Drags a song to another spot by its ☰ grip. Pointer events rather than HTML drag and drop, which phones do not do.
+function startDrag(e, slotEl, set) {
+  e.preventDefault();
+  if (picking) {
+    picking = null;
+    return renderSets();
+  }
+  const grip = e.currentTarget;
+  const list = slotEl.parentElement;
+  const grab = e.clientY - slotEl.getBoundingClientRect().top; // keeps the song where the finger took hold of it
+  let y = e.clientY;
+  let frame;
+  let done = false;
+  grip.setPointerCapture(e.pointerId);
+  list.classList.add('dragging'); // gaps and mixes fold away so only the songs move
+  slotEl.classList.add('lifted');
+  const slots = () => [...list.querySelectorAll('.slot')];
+
+  const step = () => {
+    const navTop = document.querySelector('nav').getBoundingClientRect().top;
+    if (y < DRAG_EDGE) scrollBy(0, -DRAG_SCROLL);
+    else if (y > navTop - DRAG_EDGE) scrollBy(0, DRAG_SCROLL);
+    const listTop = list.getBoundingClientRect().top;
+    const mid = y - grab + slotEl.offsetHeight / 2;
+    const midOf = s => listTop + s.offsetTop + s.offsetHeight / 2;
+    // Passing the middle of the next or previous song swaps places with it. The other song is the one moved:
+    // taking the dragged one out of the page, even for a moment, would make the browser drop the finger.
+    for (let moved = true; moved;) {
+      const all = slots();
+      const i = all.indexOf(slotEl);
+      moved = true;
+      if (all[i + 1] && mid > midOf(all[i + 1])) slotEl.before(all[i + 1]);
+      else if (all[i - 1] && mid < midOf(all[i - 1])) slotEl.after(all[i - 1]);
+      else moved = false;
+    }
+    slotEl.style.transform = `translateY(${y - grab - (listTop + slotEl.offsetTop)}px)`;
+    slots().forEach((s, j) => { s.querySelector('.num').textContent = j + 1; });
+    frame = requestAnimationFrame(step);
+  };
+  const move = ev => { y = ev.clientY; };
+  const drop = () => {
+    if (done) return;
+    done = true;
+    cancelAnimationFrame(frame);
+    for (const [type, fn] of listeners) window.removeEventListener(type, fn);
+    const order = slots().map(s => set.songs[Number(s.dataset.i)]);
+    log('dragged', set.name, order);
+    if (order.some((id, j) => id !== set.songs[j])) updateSongs(set, order);
+    else renderSets();
+  };
+  const listeners = [['pointermove', move], ['pointerup', drop], ['pointercancel', drop]];
+  for (const [type, fn] of listeners) window.addEventListener(type, fn);
+  step();
+}
+
+function askTransitions(list) {
+  for (const [a, b] of list) {
+    if (!pairFor(a, b) && !transitionQueue.some(([x, y]) => x === a && y === b)) transitionQueue.push([a, b]);
+  }
+  nextTransition();
+}
+
+// Asks about the queued mixes one at a time, sharing the card with the genre/BPM questions.
+function nextTransition() {
+  const dlg = $('details');
+  if (dlg.open) {
+    if (!transitionWaiting) {
+      transitionWaiting = true;
+      dlg.addEventListener('close', () => { transitionWaiting = false; setTimeout(nextTransition); }, { once: true });
+    }
+    return;
+  }
+  const next = transitionQueue.shift();
+  if (!next) return;
+  const [a, b] = next;
+  if (!trackById(a) || !trackById(b) || pairFor(a, b)) return nextTransition();
+  transitionCard(a, b);
+}
+
+function transitionCard(a, b) {
+  const dlg = $('details');
+  const [from, to] = [trackById(a), trackById(b)];
+  const m = { rating: 0, type: 0, energy: 0 };
+  const fields = el('div');
+  const notes = el('textarea', { rows: '2', placeholder: 'e.g. drop B after the second breakdown' });
+  const error = el('p', { class: 'error' });
+  const draw = () => {
+    const buttons = mixButtons(m, draw);
+    fields.replaceChildren(
+      el('label', {}, 'How good is the mix?'), el('div', { class: 'segs' }, ...buttons.rating),
+      el('label', {}, 'Mix type'), el('div', { class: 'segs' }, ...buttons.type),
+      el('label', {}, 'Energy'), el('div', { class: 'segs' }, ...buttons.energy));
+  };
+  draw();
+
+  const save = async () => {
+    if (!m.rating) {
+      error.textContent = 'Pick how good the mix is';
+      return;
+    }
+    dlg.close();
+    if (pairFor(a, b)) return;
+    const pair = { from: a, to: b, ...m, notes: notes.value.trim(), v: PAIR_FORMAT };
+    pair.id = await db.put('pairs', pair);
+    pairs.push(pair);
+    log('saved mix from set', pair);
+    toast(`Saved: ${from.name} → ${to.name}`);
+    refresh();
+  };
+  const more = transitionQueue.length;
+
+  dlg.replaceChildren(
+    el('h1', {}, 'Save this mix?'),
+    el('p', { class: 'deck-song' }, `${from.name} → ${to.name}`),
+    el('div', { class: 'info' }, bpmGap({ from: a, to: b })),
+    fields,
+    el('label', {}, 'Notes'), notes,
+    error,
+    el('button', { class: 'primary', onclick: save }, 'Save mix'),
+    el('div', { class: 'buttons' },
+      el('button', { onclick: () => dlg.close() }, 'Not now'),
+      more ? el('button', { onclick: () => { transitionQueue = []; dlg.close(); } }, `Skip all ${more + 1}`) : ''));
+  dlg.addEventListener('close', () => setTimeout(nextTransition), { once: true });
+  dlg.showModal();
+  dlg.focus();
+}
+
+function openSet(id) {
+  openSetId = id;
+  picking = null;
+  renderSets();
+  window.scrollTo(0, 0);
+}
+
+function closeSet() {
+  openSetId = null;
+  renderSets();
+  window.scrollTo(0, 0);
+}
+
+function toggleTransitions() {
+  showTransitions = !showTransitions;
+  settings.set('transitions', showTransitions ? 'on' : 'off');
+  renderSets();
+}
+
+async function newSet() {
+  const name = prompt('Name for the set', `Set ${sets.length + 1}`)?.trim();
+  if (!name) return;
+  const set = { name, songs: [], updated: Date.now() };
+  set.id = await db.put('sets', set);
+  sets.push(set);
+  log('new set', set);
+  openSet(set.id);
+}
+
+async function renameSet(set) {
+  const name = prompt('Set name', set.name)?.trim();
+  if (!name || name === set.name) return;
+  set.name = name;
+  set.updated = Date.now();
+  await db.put('sets', set);
+  renderSets();
+}
+
+async function deleteSet(set) {
+  if (!confirm(`Delete the set "${set.name}"? The saved mixes stay.`)) return;
+  await db.del('sets', set.id);
+  sets = sets.filter(s => s !== set);
+  log('deleted set', set.name);
+  closeSet();
+}
+
 // ---------- Settings: Discogs + backup ----------
 
 function renderSettings() {
   const fromDiscogs = tracks.filter(t => t.releaseId);
   const records = new Set(fromDiscogs.map(t => t.releaseId)).size;
   $('version').textContent = `Version ${APP_VERSION}`;
-  $('stats').textContent = `${fromDiscogs.length} songs from ${records} records, ${tracks.length - fromDiscogs.length} typed in, ${pairs.length} mixes saved.`;
+  $('stats').textContent = `${fromDiscogs.length} songs from ${records} records, ${tracks.length - fromDiscogs.length} typed in, ${pairs.length} mixes saved, ${sets.length} sets.`;
 }
 
 async function toggleSync() {
@@ -825,12 +1137,14 @@ async function keepAwake(on) {
 
 const validBackup = data => Array.isArray(data?.tracks) && Array.isArray(data?.pairs)
   && data.tracks.every(t => Number.isInteger(t?.id) && typeof t.name === 'string')
-  && data.pairs.every(p => Number.isInteger(p?.from) && Number.isInteger(p?.to));
+  && data.pairs.every(p => Number.isInteger(p?.from) && Number.isInteger(p?.to))
+  // Sets were added in backup version 3; older backups have none.
+  && (data.sets === undefined || (Array.isArray(data.sets) && data.sets.every(s => Number.isInteger(s?.id) && Array.isArray(s.songs))));
 
 function exportData() {
-  const json = JSON.stringify({ version: 2, tracks, pairs });
+  const json = JSON.stringify({ version: 3, tracks, pairs, sets });
   const name = `mixpairs-${new Date().toISOString().slice(0, 10)}.json`;
-  log('export', tracks.length, 'songs', pairs.length, 'mixes');
+  log('export', tracks.length, 'songs', pairs.length, 'mixes', sets.length, 'sets');
   if (window.Android) return window.Android.saveBackup(json, name); // WebView cannot download blobs
   const a = el('a', { href: URL.createObjectURL(new Blob([json], { type: 'application/json' })), download: name });
   a.click();
@@ -841,11 +1155,12 @@ async function importData(file) {
   let data;
   try { data = JSON.parse(await file.text()); } catch { return toast('Not a valid backup file'); }
   if (!validBackup(data)) return toast('Not a valid backup file');
-  if (!confirm(`Replace everything with ${data.tracks.length} songs and ${data.pairs.length} mixes from this file?`)) return;
+  if (!confirm(`Replace everything with ${data.tracks.length} songs, ${data.pairs.length} mixes and ${data.sets?.length ?? 0} sets from this file?`)) return;
   await db.replaceAll(data);
   await load();
   settings.set('recent', '[]'); // song ids mean something else in another backup
   currentTrackId = null;
+  openSetId = null;
   $('lookup-input').value = '';
   resetAdd();
   renderSettings();
@@ -854,7 +1169,7 @@ async function importData(file) {
 
 // ---------- shell ----------
 
-const renderers = { lookup: renderLookup, add: renderDraft, manage: renderManage, settings: renderSettings };
+const renderers = { lookup: renderLookup, add: renderDraft, manage: renderManage, sets: renderSets, settings: renderSettings };
 
 // Redraws the screen that is showing, after something it displays has changed.
 function refresh() {
@@ -871,9 +1186,10 @@ function show(view) {
 }
 
 async function load() {
-  [tracks, pairs] = await Promise.all([db.all('tracks'), db.all('pairs')]);
+  [tracks, pairs, sets] = await Promise.all([db.all('tracks'), db.all('pairs'), db.all('sets')]);
   trackMap.clear();
   for (const t of tracks) trackMap.set(t.id, t);
+  for (const s of sets) s.songs = s.songs.filter(id => trackMap.has(id));
   // A mix pointing at a song that no longer exists cannot be shown; leave it out rather than break the screens.
   const total = pairs.length;
   pairs = pairs.filter(p => trackMap.has(p.from) && trackMap.has(p.to));
@@ -959,7 +1275,13 @@ async function init() {
     e.target.value = '';
   });
 
-  for (const b of document.querySelectorAll('nav button')) b.addEventListener('click', () => show(b.dataset.view));
+  showTransitions = settings.get('transitions') !== 'off';
+  for (const b of document.querySelectorAll('nav button')) {
+    b.addEventListener('click', () => {
+      if (b.dataset.view === 'sets' && !$('view-sets').hidden) openSetId = null; // tapping Sets again goes back to the list
+      show(b.dataset.view);
+    });
+  }
   show('lookup');
 
   window.addEventListener('popstate', () => closeSheet()); // phone back button

@@ -286,6 +286,46 @@ button.songlink, .row button.songlink { min-height: 0; padding: 0; font: inherit
 .deck-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .deck-meta .sub { margin-top: 0; }
 
+/* ---------- sets ---------- */
+
+.set-name { margin-top: 14px; overflow-wrap: anywhere; }
+.set-list { position: relative; display: flex; flex-direction: column; margin-top: 14px; }
+/* While a song is dragged only the songs show, so the gap between them is drawn by the list. */
+.set-list.dragging { gap: 8px; }
+.set-list.dragging .between, .set-list.dragging .slot-pick { display: none; }
+
+.slot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 8px;
+  background: linear-gradient(180deg, #211c17, #17130f);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.slot .num { flex: none; width: 28px; color: var(--accent); font: 400 24px/1 var(--display); text-align: center; }
+.slot button { min-height: 44px; padding: 0; background: none; border: 0; }
+.slot .song { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 6px; text-align: left; overflow-wrap: anywhere; }
+.slot .song small { color: var(--muted); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.slot .song small:empty { display: none; }
+.slot .remove { flex: none; width: 40px; color: var(--muted); }
+/* touch-action: none lets a finger on the grip drag the song instead of scrolling the page. */
+.slot .grip { flex: none; width: 48px; color: var(--muted); font-size: 22px; touch-action: none; cursor: grab; }
+.slot.lifted { position: relative; z-index: 3; border-color: var(--accent); box-shadow: var(--glow), 0 10px 30px rgba(0, 0, 0, 0.7); }
+.slot.lifted .grip { color: var(--accent); cursor: grabbing; }
+
+/* Between two songs: the mix that joins them, and ＋ to put a song in between. */
+.between { display: flex; align-items: center; gap: 6px; min-height: 40px; padding-left: 22px; border-left: 2px solid var(--line); margin-left: 22px; }
+.between .trans { flex: 1; min-width: 0; min-height: 40px; padding: 4px 6px; text-align: left; background: none; border: 0; }
+.between .gap { flex: none; width: 44px; min-height: 36px; margin-left: auto; padding: 0; color: var(--accent); border-radius: 999px; }
+.chip.unsaved { border-style: dashed; }
+.slot-pick { margin: 8px 0; }
+.slot-pick .wide { margin-top: 8px; min-height: 40px; }
+.add-end { color: var(--accent); }
+.set-actions { margin-top: 28px; }
+
 /* ---------- genre and BPM card ---------- */
 
 #details {
@@ -302,8 +342,7 @@ button.songlink, .row button.songlink { min-height: 0; padding: 0; font: inherit
 #details:focus { outline: none; }
 #details .chips { margin-top: 8px; }
 #details .buttons { margin-top: 10px; }
-#details .error { margin: 10px 0 0; color: var(--danger); }
-#details .error:empty { display: none; }
+#details .error { margin: 10px 0 0; color: var(--danger); }#details .error:empty { display: none; }
 .bpm-row { display: flex; gap: 10px; }
 .bpm-row input { flex: 1; min-width: 0; }
 button.tap { min-width: 130px; color: var(--accent); }
